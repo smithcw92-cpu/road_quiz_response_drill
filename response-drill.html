@@ -716,6 +716,9 @@ function checkAnswer() {
       inp.className = 'ok';
       fb(`✓  ${matched}`, 'fb-ok');
       addStep(matched, 'done');
+      for (const w of roadWays.filter(w => w.name === matched)) {
+        drawLine({ type: 'LineString', coordinates: w.nodes.map(n => [n.lon, n.lat]) }, '#4caf50');
+      }
       updateCounter();
       setTimeout(() => { clearInput(); fb('', ''); document.getElementById('answer-input').focus(); }, 700);
     } else {
