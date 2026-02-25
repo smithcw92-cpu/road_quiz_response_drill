@@ -147,7 +147,7 @@
     }
     #new-call-btn:hover:not(:disabled) { background: #323d60; }
     #new-call-btn:disabled { opacity: 0.5; pointer-events: none; }
-    #mode-row { display: flex; gap: 6px; margin-bottom: 8px; }
+    #mode-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
     .mode-btn {
       flex: 1; padding: 6px 4px; border-radius: 5px;
       border: 1px solid #2a3050; background: #12151c;
@@ -296,6 +296,7 @@
           <button class="mode-btn active" id="mode-ix">Random</button>
           <button class="mode-btn"        id="mode-addr">Address</button>
           <button class="mode-btn"        id="mode-common">Common Spots</button>
+          <button class="mode-btn"        id="mode-dispatch">Dispatch</button>
         </div>
         <div id="addr-wrap" class="hidden">
           <input type="text" id="address-input" placeholder="Address on Bainbridge Island…">
@@ -401,6 +402,7 @@ let mapHidden     = false;
 let routeComplete = false;
 let sess       = { calls: 0, correct: 0, total: 0 };
 let roadNameSet = new Set();
+let roadWays    = [];          // road way geometries for dispatch mode
 let userSteps   = [];
 
 // ── Map ──────────────────────────────────────────────────────
@@ -521,6 +523,45 @@ async function getRoute(fLat, fLon, tLat, tLon) {
   return { steps, totalDistance: rt.distance, fullGeometry: rt.geometry };
 }
 
+function buildRoadWays(data) {
+  const ways = [];
+  for (const el of data.elements) {
+    if (el.type !== 'way' || !el.tags?.name || !el.geometry) continue;
+    const nodes = el.geometry.filter(g => g != null);
+    if (nodes.length >= 2) ways.push({ name: el.tags.name, nodes });
+  }
+  return ways;
+}
+
+async function reverseGeocode(lat, lon) {
+  const r = await fetch(
+    `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`,
+    { headers: { 'Accept-Language': 'en' }, signal: AbortSignal.timeout(10_000) }
+  );
+  return r.json();
+}
+
+function getCrossStreets(roadName, lat, lon, count = 2) {
+  // Prefer intersections that actually involve this road
+  const onRoad = ixList
+    .filter(ix => ix.label.split(' & ').some(p => p.trim() === roadName))
+    .map(ix => ({ ...ix, dist: Math.hypot(ix.lat - lat, ix.lon - lon) }))
+    .sort((a, b) => a.dist - b.dist)
+    .slice(0, count);
+  if (onRoad.length) {
+    return onRoad.map(ix => {
+      const parts = ix.label.split(' & ');
+      return (parts.find(p => p.trim() !== roadName) || parts[0]).trim();
+    });
+  }
+  // Fallback: nearest intersections by distance
+  return ixList
+    .map(ix => ({ ...ix, dist: Math.hypot(ix.lat - lat, ix.lon - lon) }))
+    .sort((a, b) => a.dist - b.dist)
+    .slice(0, count)
+    .map(ix => ix.label);
+}
+
 async function geocodeAddr(q) {
   const enc = encodeURIComponent(q + ', Bainbridge Island, WA');
   const r = await fetch(
@@ -528,6 +569,41 @@ async function geocodeAddr(q) {
     { headers: { 'Accept-Language': 'en' }, signal: AbortSignal.timeout(10_000) }
   );
   return r.json();
+}
+
+async function startDispatchCall() {
+  if (!roadWays.length || !ixList.length) {
+    document.getElementById('call-label').textContent = 'Road data not ready — try again.';
+    return;
+  }
+  setLoad(true, 'Finding dispatch address…');
+  const minDeg = 0.006; // ~600m minimum from station
+  let dest = null;
+
+  for (let attempt = 0; attempt < 6 && !dest; attempt++) {
+    try {
+      const way  = roadWays[Math.floor(Math.random() * roadWays.length)];
+      const node = way.nodes[Math.floor(Math.random() * way.nodes.length)];
+      if (Math.hypot(node.lat - station.lat, node.lon - station.lon) < minDeg) continue;
+
+      const result   = await reverseGeocode(node.lat, node.lon);
+      const houseNum = result?.address?.house_number || '';
+      const addrLine = houseNum ? `${houseNum} ${way.name}` : way.name;
+
+      const crosses  = getCrossStreets(way.name, node.lat, node.lon);
+      const crossStr = crosses.length ? `Cross: ${crosses.join(' & ')}` : '';
+      const label    = crossStr ? `${addrLine} — ${crossStr}` : addrLine;
+
+      dest = { lat: node.lat, lon: node.lon, label };
+    } catch (_) {}
+  }
+
+  if (!dest) {
+    setLoad(false);
+    document.getElementById('call-label').textContent = 'Could not find dispatch address — try again.';
+    return;
+  }
+  await startCall(dest);
 }
 
 // ── Quiz ─────────────────────────────────────────────────────
@@ -858,6 +934,8 @@ document.getElementById('new-call-btn').addEventListener('click', () => {
     }
     const pick = COMMON_ADDRESSES[Math.floor(Math.random() * COMMON_ADDRESSES.length)];
     startCall(pick);
+  } else if (mode === 'dispatch') {
+    startDispatchCall();
   } else {
     document.getElementById('address-input').focus();
     document.getElementById('call-label').textContent = 'Enter an address above, then press Go.';
@@ -874,16 +952,18 @@ document.getElementById('answer-input').addEventListener('keydown', e => {
 
 function setMode(m) {
   mode = m;
-  document.getElementById('mode-ix').classList.toggle('active',     m === 'intersection');
-  document.getElementById('mode-addr').classList.toggle('active',   m === 'address');
-  document.getElementById('mode-common').classList.toggle('active', m === 'common');
-  document.getElementById('addr-wrap').classList.toggle('hidden',   m !== 'address');
+  document.getElementById('mode-ix').classList.toggle('active',       m === 'intersection');
+  document.getElementById('mode-addr').classList.toggle('active',     m === 'address');
+  document.getElementById('mode-common').classList.toggle('active',   m === 'common');
+  document.getElementById('mode-dispatch').classList.toggle('active', m === 'dispatch');
+  document.getElementById('addr-wrap').classList.toggle('hidden',     m !== 'address');
   if (m === 'address') setTimeout(() => document.getElementById('address-input').focus(), 50);
 }
 
-document.getElementById('mode-ix').addEventListener('click',     () => setMode('intersection'));
-document.getElementById('mode-addr').addEventListener('click',   () => setMode('address'));
-document.getElementById('mode-common').addEventListener('click', () => setMode('common'));
+document.getElementById('mode-ix').addEventListener('click',       () => setMode('intersection'));
+document.getElementById('mode-addr').addEventListener('click',     () => setMode('address'));
+document.getElementById('mode-common').addEventListener('click',   () => setMode('common'));
+document.getElementById('mode-dispatch').addEventListener('click', () => setMode('dispatch'));
 
 document.getElementById('addr-go').addEventListener('click', async () => {
   const addr = document.getElementById('address-input').value.trim();
@@ -935,7 +1015,8 @@ async function init() {
   setLoad(true, 'Loading Bainbridge Island road data…');
   try {
     const data = await loadRoadData();
-    ixList = buildIntersections(data);
+    ixList    = buildIntersections(data);
+    roadWays  = buildRoadWays(data);
     if (ixList.length < 5) throw new Error(`Only ${ixList.length} intersections found — check Overpass query`);
     setLoad(false);
     await startCall();
