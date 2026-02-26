@@ -147,6 +147,10 @@
     }
     #new-call-btn:hover:not(:disabled) { background: #323d60; }
     #new-call-btn:disabled { opacity: 0.5; pointer-events: none; }
+    .mode-group-label {
+      font-size: 0.67rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1px; color: #5a6380; margin-bottom: 5px;
+    }
     #mode-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
     .mode-btn {
       flex: 1; padding: 6px 4px; border-radius: 5px;
@@ -288,10 +292,12 @@
 
       <div class="panel">
         <button id="new-call-btn">New Call</button>
+        <div class="mode-group-label">Route Type</div>
         <div id="route-mode-row" style="display:flex;gap:6px;margin-bottom:8px;">
           <button class="mode-btn active" id="rmode-direct">Most Direct Route</button>
           <button class="mode-btn"        id="rmode-any">Any Route</button>
         </div>
+        <div class="mode-group-label" style="margin-top:10px;">Destination</div>
         <div id="mode-row">
           <button class="mode-btn active" id="mode-ix">Random</button>
           <button class="mode-btn"        id="mode-addr">Address</button>
@@ -1034,3 +1040,4 @@ init();
 </script>
 </body>
 </html>
+
