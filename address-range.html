@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BI Address Range Explorer</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #12151c;
+      color: #dde1ea;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #header {
+      background: #1a1f2e;
+      border-bottom: 2px solid #2a3050;
+      padding: 10px 18px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-shrink: 0;
+    }
+    #header h1 { font-size: 1.05rem; font-weight: 700; color: #e05252; letter-spacing: 0.5px; white-space: nowrap; }
+    #header-info { font-size: 0.82rem; color: #7a8299; }
+    #main { flex: 1; display: flex; overflow: hidden; }
+    #map { flex: 1; min-width: 0; }
+
+    /* Sidebar */
+    #sidebar {
+      width: 300px; flex-shrink: 0;
+      background: #1a1f2e; border-left: 2px solid #2a3050;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #sidebar-scroll {
+      flex: 1; overflow-y: auto; padding: 14px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    #sidebar-scroll::-webkit-scrollbar { width: 4px; }
+    #sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+    #sidebar-scroll::-webkit-scrollbar-thumb { background: #2a3050; border-radius: 2px; }
+
+    .panel { background: #20273a; border: 1px solid #2a3050; border-radius: 8px; padding: 12px; }
+    .panel-title {
+      font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1px; color: #5a6380; margin-bottom: 9px;
+    }
+
+    /* Road type filter */
+    .filter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+    .filter-btn {
+      padding: 7px 4px; border-radius: 5px;
+      border: 1px solid #2a3050; background: #12151c;
+      color: #7a8299; font-size: 0.72rem; cursor: pointer;
+      text-align: center; transition: all 0.15s; line-height: 1.3;
+    }
+    .filter-btn:hover { border-color: #4a5570; color: #aab0c4; }
+    .filter-btn.active { border-color: #4a90e2; color: #4a90e2; background: rgba(74,144,226,.1); }
+    #filter-desc {
+      font-size: 0.72rem; color: #5a6380; margin-top: 8px; line-height: 1.5;
+      min-height: 2.8em;
+    }
+
+    /* Lookup */
+    #lookup-input {
+      width: 100%; background: #12151c; border: 1px solid #2a3050;
+      border-radius: 6px; color: #dde1ea; font-size: 0.9rem;
+      padding: 8px 10px; outline: none; margin-bottom: 8px;
+      -moz-appearance: textfield;
+    }
+    #lookup-input::-webkit-outer-spin-button,
+    #lookup-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+    #lookup-input:focus { border-color: #4a5570; }
+    #lookup-result { font-size: 0.8rem; color: #7a8299; line-height: 1.5; min-height: 2.2em; }
+
+    /* Band selector */
+    #band-selector { display: flex; flex-direction: column; gap: 4px; }
+    .band-btn {
+      padding: 7px 10px; border-radius: 5px;
+      border: 1px solid #2a3050; background: #12151c;
+      color: #7a8299; font-size: 0.75rem; cursor: pointer;
+      text-align: left; transition: all 0.15s;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .band-btn:hover { border-color: #4a5570; color: #aab0c4; }
+    .band-btn.active { background: rgba(255,255,255,.06); color: #dde1ea; border-color: #4a5570; }
+    .band-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .band-count { margin-left: auto; font-size: 0.68rem; color: #5a6380; }
+    #band-total { font-size: 0.7rem; color: #5a6380; margin-top: 8px; text-align: center; }
+
+    /* Loading */
+    #loading {
+      position: fixed; inset: 0; background: #12151c;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 9999; gap: 14px;
+    }
+    .spinner {
+      width: 44px; height: 44px; border: 4px solid #2a3050;
+      border-top-color: #e05252; border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading-msg { color: #5a6380; font-size: 0.9rem; }
+    #loading-sub { color: #3a4060; font-size: 0.78rem; }
+
+    /* Leaflet tooltip override */
+    .addr-tip {
+      background: #1a1f2e !important; border: 1px solid #2a3050 !important;
+      color: #dde1ea !important; font-size: 0.74rem !important;
+      padding: 3px 8px !important; border-radius: 4px !important;
+      box-shadow: 0 2px 8px rgba(0,0,0,.4) !important;
+    }
+    .addr-tip::before { display: none !important; }
+
+    @media (max-width: 600px) {
+      #sidebar { width: 100%; border-left: none; border-top: 2px solid #2a3050; max-height: 44vh; }
+      #main { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <div id="loading-msg">Fetching address data from OpenStreetMap…</div>
+  <div id="loading-sub">This may take 10–20 seconds</div>
+</div>
+
+<div id="header">
+  <h1>BI Address Range Explorer</h1>
+  <div id="header-info">Loading…</div>
+</div>
+
+<div id="main">
+  <div id="map"></div>
+  <div id="sidebar">
+    <div id="sidebar-scroll">
+
+      <div class="panel">
+        <div class="panel-title">Road Type Filter</div>
+        <div class="filter-grid">
+          <button class="filter-btn active" data-filter="all">All Addresses</button>
+          <button class="filter-btn" data-filter="suffix">Suffix NE<br><span style="opacity:.7">(E–W roads)</span></button>
+          <button class="filter-btn" data-filter="prefix">Prefix NE<br><span style="opacity:.7">(N–S roads)</span></button>
+          <button class="filter-btn" data-filter="downtown">Downtown<br><span style="opacity:.7">(non-NE)</span></button>
+        </div>
+        <div id="filter-desc">Showing all addresses. Use filters to isolate each road type and see how number ranges align with geography.</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Address Lookup</div>
+        <input type="number" id="lookup-input" placeholder="Enter a house number…" min="1" />
+        <div id="lookup-result">Type a number to jump to its range.</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Address Range</div>
+        <div id="band-selector"></div>
+        <div id="band-total"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+
+// ── Band colour scale ──────────────────────────────────────
+// One discrete colour per 1,000-block: blue (low) → red (high)
+let sortedBands  = []; // sorted rangeStart values present in the data
+let bandColorMap = {}; // rs → hsl string
+
+function computeBandColors() {
+  const n = sortedBands.length;
+  sortedBands.forEach((rs, i) => {
+    const t = n <= 1 ? 0 : i / (n - 1);
+    bandColorMap[rs] = `hsl(${Math.round(240 - t * 240)}, 85%, 58%)`;
+  });
+}
+
+function rangeStart(num) {
+  return num < 1000 ? 0 : Math.floor(num / 1000) * 1000;
+}
+
+function rangeLabel(rs) {
+  if (rs === 0) return '< 1,000  (Downtown)';
+  return `${rs.toLocaleString()}s`;
+}
+
+// N-S road = prefix NE (number → E-W position)
+// E-W road = suffix NE (number → N-S position)
+// Downtown = no NE directional
+function classifyStreet(street) {
+  if (!street) return 'downtown';
+  if (/^(NE|Northeast)\s/i.test(street))  return 'prefix';
+  if (/\s(NE|Northeast)$/i.test(street))  return 'suffix';
+  return 'downtown';
+}
+
+// ── State ──────────────────────────────────────────────────
+let allMarkers   = [];    // [{marker, rs, num, type}]
+let rangeData    = {};    // rs → {count}
+let activeFilter = 'all';
+let activeBand   = null;  // null = show all, or a rangeStart number
+
+// ── Map ────────────────────────────────────────────────────
+const map = L.map('map', { center: [47.645, -122.522], zoom: 12 });
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap contributors © CARTO',
+  subdomains: 'abcd', maxZoom: 19,
+}).addTo(map);
+
+// ── Overpass fetch (mirror fallback on 429) ────────────────
+const OVERPASS_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+];
+
+async function fetchAddresses() {
+  const q = `[out:json][timeout:90];
+area["name"="Bainbridge Island"]["admin_level"="8"]->.bi;
+(
+  node["addr:housenumber"]["addr:street"](area.bi);
+  way["addr:housenumber"]["addr:street"](area.bi);
+);
+out center;`;
+
+  const msgEl = document.getElementById('loading-msg');
+  const subEl = document.getElementById('loading-sub');
+
+  for (let attempt = 0; attempt < OVERPASS_ENDPOINTS.length; attempt++) {
+    const endpoint = OVERPASS_ENDPOINTS[attempt];
+    if (attempt > 0) {
+      msgEl.textContent = `Trying mirror server ${attempt + 1} of ${OVERPASS_ENDPOINTS.length}…`;
+      subEl.textContent = 'Main server busy — switching to backup';
+      await new Promise(res => setTimeout(res, 1500));
+    }
+    try {
+      const r = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: q,
+        signal: AbortSignal.timeout(100_000),
+      });
+      if (r.status === 429) continue;
+      if (!r.ok) throw new Error(`HTTP ${r.status} from ${endpoint}`);
+      return r.json();
+    } catch (e) {
+      if (attempt === OVERPASS_ENDPOINTS.length - 1) throw e;
+    }
+  }
+  throw new Error('All Overpass servers are busy — please wait a minute and retry.');
+}
+
+// ── Parse & place dots ─────────────────────────────────────
+function parseAndRender(data) {
+  rangeData  = {};
+  allMarkers = [];
+
+  // Collect valid entries
+  const entries = [];
+  for (const el of data.elements) {
+    let lat, lon;
+    if      (el.type === 'node')             { lat = el.lat;        lon = el.lon;        }
+    else if (el.type === 'way' && el.center) { lat = el.center.lat; lon = el.center.lon; }
+    else continue;
+    const rawNum = el.tags?.['addr:housenumber'];
+    const street = el.tags?.['addr:street'] || '';
+    if (!rawNum) continue;
+    const num = parseInt(rawNum, 10);
+    if (isNaN(num) || num <= 0) continue;
+    entries.push({ lat, lon, num, rawNum, street });
+  }
+  if (!entries.length) return;
+
+  // Build sorted band list and assign colours
+  const bandSet = new Set(entries.map(e => rangeStart(e.num)));
+  sortedBands = [...bandSet].sort((a, b) => a - b);
+  computeBandColors();
+
+  // Count per band
+  for (const { num } of entries) {
+    const rs = rangeStart(num);
+    if (!rangeData[rs]) rangeData[rs] = { count: 0 };
+    rangeData[rs].count++;
+  }
+
+  // Create markers
+  for (const { lat, lon, num, rawNum, street } of entries) {
+    const rs    = rangeStart(num);
+    const type  = classifyStreet(street);
+    const color = bandColorMap[rs];
+
+    const marker = L.circleMarker([lat, lon], {
+      radius: 4, color, fillColor: color,
+      fillOpacity: 0.85, weight: 0, opacity: 0.9,
+    });
+    marker.bindTooltip(`${rawNum} ${street}`, { sticky: true, className: 'addr-tip' });
+    marker.addTo(map);
+
+    allMarkers.push({ marker, rs, num, type });
+  }
+
+  buildBandSelector();
+  updateHeaderInfo();
+  refreshVisibility();
+}
+
+// ── Band selector panel ────────────────────────────────────
+function buildBandSelector() {
+  const container = document.getElementById('band-selector');
+  container.innerHTML = '';
+
+  // "All" button
+  const allBtn = document.createElement('button');
+  allBtn.className = 'band-btn active';
+  allBtn.dataset.rs = 'all';
+  allBtn.innerHTML =
+    `<span class="band-dot" style="background:linear-gradient(135deg,hsl(240,85%,58%),hsl(0,85%,58%))"></span>` +
+    `<span>All ranges</span>` +
+    `<span class="band-count">${allMarkers.length.toLocaleString()}</span>`;
+  allBtn.addEventListener('click', () => selectBand(null));
+  container.appendChild(allBtn);
+
+  // One button per 1,000-block
+  for (const rs of sortedBands) {
+    const color = bandColorMap[rs];
+    const count = rangeData[rs]?.count ?? 0;
+    const btn = document.createElement('button');
+    btn.className = 'band-btn';
+    btn.dataset.rs = String(rs);
+    btn.innerHTML =
+      `<span class="band-dot" style="background:${color}"></span>` +
+      `<span>${rangeLabel(rs)}</span>` +
+      `<span class="band-count">${count.toLocaleString()}</span>`;
+    btn.addEventListener('click', () => selectBand(rs));
+    container.appendChild(btn);
+  }
+
+  document.getElementById('band-total').textContent =
+    `${allMarkers.length.toLocaleString()} addresses · ${sortedBands.length} bands`;
+}
+
+function selectBand(rs) {
+  activeBand = rs; // null = all
+  // Sync button active states
+  document.querySelectorAll('.band-btn').forEach(b => {
+    const brs = b.dataset.rs === 'all' ? null : Number(b.dataset.rs);
+    b.classList.toggle('active', brs === activeBand);
+  });
+  refreshVisibility();
+}
+
+// ── Visibility ─────────────────────────────────────────────
+function refreshVisibility() {
+  for (const { marker, rs, type } of allMarkers) {
+    const typeOk = activeFilter === 'all' || type === activeFilter;
+    const bandOk = activeBand === null || rs === activeBand;
+    marker.setStyle({
+      opacity:     typeOk && bandOk ? 0.9  : 0,
+      fillOpacity: typeOk && bandOk ? 0.85 : 0,
+    });
+  }
+}
+
+// ── Filter ─────────────────────────────────────────────────
+const FILTER_DESC = {
+  all:      'Showing all addresses. Select a range below to isolate one 1,000-block.',
+  suffix:   'E–W roads only (suffix NE, e.g. "Madison Ave NE"). Numbers increase as you move north — same range = same horizontal band.',
+  prefix:   'N–S roads only (prefix NE, e.g. "NE Sportsman Club Rd"). Numbers increase as you move east — same range = same vertical band.',
+  downtown: 'Downtown Winslow only — the sole area with non-NE addresses. Select the "< 1,000" range to highlight these.',
+};
+
+function setFilter(filter) {
+  activeFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.filter === filter)
+  );
+  document.getElementById('filter-desc').textContent = FILTER_DESC[filter];
+  refreshVisibility();
+}
+
+// ── Address lookup ─────────────────────────────────────────
+function handleLookup(val) {
+  const resultEl = document.getElementById('lookup-result');
+  const num = parseInt(val, 10);
+
+  if (!val || isNaN(num) || num <= 0) {
+    resultEl.textContent = 'Type a number to jump to its range.';
+    return;
+  }
+
+  const rs    = rangeStart(num);
+  const color = bandColorMap[rs] || '#7a8299';
+  const count = rangeData[rs]?.count ?? 0;
+
+  resultEl.innerHTML =
+    `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;` +
+    `background:${color};margin-right:6px;vertical-align:middle"></span>` +
+    `<strong style="color:#dde1ea">${num.toLocaleString()}</strong> is in the ` +
+    `<span style="color:${color};font-weight:700">${rangeLabel(rs)}</span>` +
+    (count ? ` <span style="color:#5a6380">(${count} pts in band)</span>` : '');
+
+  // Auto-select the band in the selector
+  if (activeBand !== rs) selectBand(rs);
+}
+
+// ── Header ─────────────────────────────────────────────────
+function updateHeaderInfo() {
+  document.getElementById('header-info').textContent =
+    `${allMarkers.length.toLocaleString()} addresses · ${sortedBands.length} bands`;
+}
+
+// ── Event listeners ────────────────────────────────────────
+document.querySelectorAll('.filter-btn').forEach(btn =>
+  btn.addEventListener('click', () => setFilter(btn.dataset.filter))
+);
+
+document.getElementById('lookup-input').addEventListener('input', e =>
+  handleLookup(e.target.value.trim())
+);
+document.getElementById('lookup-input').addEventListener('keydown', e => {
+  if (e.key === 'Escape') { e.target.value = ''; handleLookup(''); }
+});
+
+// ── Init ───────────────────────────────────────────────────
+async function init() {
+  try {
+    const data = await fetchAddresses();
+    document.getElementById('loading-msg').textContent = 'Rendering…';
+    parseAndRender(data);
+    document.getElementById('loading').style.display = 'none';
+  } catch (err) {
+    document.getElementById('loading').innerHTML = `
+      <div style="color:#e05252;font-size:1rem;margin-bottom:8px;">Failed to load address data</div>
+      <div style="color:#5a6380;font-size:0.82rem;max-width:300px;text-align:center;margin-bottom:16px;">${err.message}</div>
+      <button onclick="location.reload()"
+        style="padding:9px 22px;background:#e05252;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.9rem;">
+        Retry
+      </button>`;
+  }
+}
+init();
+</script>
+</body>
+</html>
