@@ -968,7 +968,10 @@ function showArtTransition() {
            <button class="btn btn-primary"   id="aa-more">+ ${nextN} new roads →</button>
          </div>`
       : `<div>🏆 You know all side roads off ${artName}!</div>
-         <button class="btn btn-secondary" style="margin-top:10px;width:100%" id="aa-new">Pick new arterial</button>`;
+         <div class="btn-row" style="margin-top:10px;">
+           <button class="btn btn-secondary" id="aa-again">Run it again</button>
+           <button class="btn btn-primary"   id="aa-new">New arterial →</button>
+         </div>`;
     document.getElementById('aa-redo5')?.addEventListener('click', () => {
       el.style.display = 'none';
       artRoads.slice(0, artOffset).forEach(n => mastered.delete(n));
@@ -976,6 +979,12 @@ function showArtTransition() {
       updateArtPhaseInfo(); updateRoadList(); nextQuestion();
     });
     document.getElementById('aa-more')?.addEventListener('click', advanceArtBatch);
+    document.getElementById('aa-again')?.addEventListener('click', () => {
+      el.style.display = 'none'; mastered.clear();
+      artPhase = 'review'; artOffset = artRoads.length;
+      quizQueue = shuffle([...artRoads]);
+      updateArtPhaseInfo(); updateRoadList(); nextQuestion();
+    });
     document.getElementById('aa-new')?.addEventListener('click', () => { el.style.display = 'none'; setMode('learn'); });
 
   } else if (artPhase === 'batch') {
@@ -1015,13 +1024,22 @@ function showArtTransition() {
            <button class="btn btn-primary"   id="aa-more">+ ${nextN} new roads →</button>
          </div>`
       : `<div>🏆 You've mastered all roads off ${artName}!</div>
-         <button class="btn btn-secondary" style="margin-top:10px;width:100%" id="aa-new">Pick new arterial</button>`;
+         <div class="btn-row" style="margin-top:10px;">
+           <button class="btn btn-secondary" id="aa-again">Run it again</button>
+           <button class="btn btn-primary"   id="aa-new">New arterial →</button>
+         </div>`;
     document.getElementById('aa-redo')?.addEventListener('click', () => {
       el.style.display = 'none'; artPhase = 'review'; mastered.clear();
       quizQueue = shuffle([...artActiveSet()]);
       updateArtPhaseInfo(); updateRoadList(); nextQuestion();
     });
     document.getElementById('aa-more')?.addEventListener('click', advanceArtBatch);
+    document.getElementById('aa-again')?.addEventListener('click', () => {
+      el.style.display = 'none'; mastered.clear();
+      artPhase = 'review'; artOffset = artRoads.length;
+      quizQueue = shuffle([...artRoads]);
+      updateArtPhaseInfo(); updateRoadList(); nextQuestion();
+    });
     document.getElementById('aa-new')?.addEventListener('click', () => { el.style.display = 'none'; setMode('learn'); });
   }
 }
