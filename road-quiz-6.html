@@ -426,7 +426,10 @@ const ARTERIAL_TYPES = new Set(['motorway', 'trunk', 'primary', 'secondary', 'te
 // Road name aliases: segments whose OSM name matches a key are merged into the value.
 // Use this to fix OSM data quirks where one logical road is split into differently-named ways.
 const ROAD_NAME_ALIASES = {
-  'Fletcher Bay Road NE': 'Fletcher Bay Road Northeast',
+  'Fletcher Bay Road NE':        'Fletcher Bay Road',
+  'Fletcher Bay Road Northeast': 'Fletcher Bay Road',
+  'Fletcher Bay Road NW':        'Fletcher Bay Road',
+  'Fletcher Bay Road Northwest': 'Fletcher Bay Road',
 };
 
 const NAMED_ARTERIALS = new Set([
