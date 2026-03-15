@@ -409,6 +409,13 @@ let routeComplete = false;
 let sess       = { calls: 0, correct: 0, total: 0 };
 let roadNameSet = new Set();
 let roadWays    = [];          // road way geometries for dispatch mode
+
+const ROAD_NAME_ALIASES = {
+  'Fletcher Bay Road NE':        'Fletcher Bay Road',
+  'Fletcher Bay Road Northeast': 'Fletcher Bay Road',
+  'Fletcher Bay Road NW':        'Fletcher Bay Road',
+  'Fletcher Bay Road Northwest': 'Fletcher Bay Road',
+};
 let userSteps   = [];
 
 // ── Map ──────────────────────────────────────────────────────
@@ -503,7 +510,7 @@ function buildIntersections(data) {
   const nodeMap = {};
   for (const el of data.elements) {
     if (el.type !== 'way' || !el.tags?.name || !el.nodes || !el.geometry) continue;
-    const name = el.tags.name;
+    const name = ROAD_NAME_ALIASES[el.tags.name] ?? el.tags.name;
     roadNameSet.add(name);
     for (let i = 0; i < el.nodes.length; i++) {
       const nid = el.nodes[i], g = el.geometry[i];
@@ -556,7 +563,7 @@ function buildRoadWays(data) {
   for (const el of data.elements) {
     if (el.type !== 'way' || !el.tags?.name || !el.geometry) continue;
     const nodes = el.geometry.filter(g => g != null);
-    if (nodes.length >= 2) ways.push({ name: el.tags.name, nodes });
+    if (nodes.length >= 2) ways.push({ name: ROAD_NAME_ALIASES[el.tags.name] ?? el.tags.name, nodes });
   }
   return ways;
 }
