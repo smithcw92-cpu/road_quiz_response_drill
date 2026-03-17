@@ -355,9 +355,6 @@
             <button class="btn btn-secondary" style="margin-top:8px;width:100%;font-size:0.78rem" id="arterial-back-btn">← Back</button>
           </div>
           <div id="learn-pick-hint">Click anywhere on the map to place your anchor…<br><span style="color:#5a6380;font-size:0.75rem;">Click another mode button to cancel.</span></div>
-          <div style="margin-top:10px;border-top:1px solid #2a3050;padding-top:10px;">
-            <button class="btn btn-secondary" id="overlay-names-btn" style="width:100%;font-size:0.78rem;">🏷️ Show Road Names on Map</button>
-          </div>
         </div>
         <div id="find-mode-ui" style="display:none">
           <div id="find-question">Click on the map where you think this road is:</div>
@@ -387,6 +384,9 @@
         </div>
         <div id="area-drawing-hint">Click &amp; drag on the map to draw a box &bull; Esc to cancel</div>
         <div id="area-status"></div>
+        <div class="opt-row" style="margin-top:7px;">
+          <button class="btn btn-secondary" id="overlay-names-btn" style="width:100%;">🏷️ Show Road Names on Map</button>
+        </div>
       </div>
       <div class="panel">
         <div class="panel-title">All Roads <span id="road-count-lbl"></span></div>
@@ -745,8 +745,8 @@ function setMode(mode) {
   document.getElementById('mode-learn-btn').classList.toggle('active', isLearnGW || isSpot || isArt || isArtName);
   document.getElementById('map').classList.toggle('find-mode', mode === 'find');
   document.getElementById('zoom-btn').style.display       = mode === 'find' ? 'none' : '';
-  document.getElementById('skip-btn').style.display       = (isSpot || isArt || isArtName) ? 'none' : '';
-  document.getElementById('see-name-btn').style.display   = (isSpot || isArt || isArtName) ? ''     : 'none';
+  document.getElementById('skip-btn').style.display       = 'none';
+  document.getElementById('see-name-btn').style.display   = (mode === 'name' || isSpot || isArt || isArtName) ? '' : 'none';
   document.getElementById('progress-wrap').style.display  = (isSpot || isArt || isArtName) ? 'none' : '';
   document.getElementById('lbl-mastered').textContent     = 'Mastered';
   document.getElementById('hint-text').textContent        = 'Press Enter to submit \u2022 Esc to skip';
@@ -1566,7 +1566,7 @@ document.getElementById('area-btn').addEventListener('click',       enterSelecti
 document.getElementById('clear-area-btn').addEventListener('click', clearAreaSelection);
 document.getElementById('answer-input').addEventListener('keydown', e => {
   if (e.key === 'Enter')  checkAnswer();
-  if (e.key === 'Escape') quizMode === 'spot' ? seeRoadName() : skipRoad();
+  if (e.key === 'Escape') seeRoadName();
 });
 document.getElementById('mode-name-btn').addEventListener('click',  () => setMode('name'));
 document.getElementById('mode-find-btn').addEventListener('click',  () => setMode('find'));
