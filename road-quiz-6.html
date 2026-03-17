@@ -341,15 +341,18 @@
         </div>
         <div id="learn-submenu">
           <div id="learn-submenu-btns">
-            <div id="learn-submenu-intro">Pick a spot or an arterial — you'll be quizzed on 5 roads at a time, adding 5 more as you nail each set.</div>
-            <div class="btn-row">
+            <div id="learn-submenu-intro">Pick a mode — you'll be quizzed on 5 roads at a time, adding 5 more as you nail each set.</div>
+            <button class="btn btn-secondary" style="margin-top:8px;width:100%" id="learn-artname-btn">🗺️ Learn Arterials</button>
+            <button class="btn btn-secondary" style="margin-top:6px;width:100%"  id="learn-arterial-btn">🛣️ Quiz an Arterial's Side Streets</button>
+            <div class="btn-row" style="margin-top:8px;">
               <button class="btn btn-secondary" id="learn-pick-btn">🖱️ Pick a Spot</button>
               <button class="btn btn-primary"   id="learn-random-btn">🎲 Random Spot</button>
             </div>
-            <button class="btn btn-secondary" style="margin-top:8px;width:100%" id="learn-arterial-btn">🛣️ Quiz an Arterial's Side Streets</button>
           </div>
           <div id="arterial-picker">
             <div style="font-size:0.8rem;color:#aab0c4;margin-bottom:6px;">Choose a main road to quiz its side streets:</div>
+            <input id="arterial-search" type="text" placeholder="Search arterials…" autocomplete="off" spellcheck="false"
+              style="width:100%;box-sizing:border-box;padding:5px 8px;border-radius:5px;border:1px solid #2a3050;background:#0d1117;color:#c5cde8;font-size:0.82rem;margin-bottom:4px;" />
             <div id="arterial-list"></div>
             <button class="btn btn-secondary" style="margin-top:8px;width:100%;font-size:0.78rem" id="arterial-back-btn">← Back</button>
           </div>
@@ -426,15 +429,24 @@ const ARTERIAL_TYPES = new Set(['motorway', 'trunk', 'primary', 'secondary', 'te
 // Road name aliases: segments whose OSM name matches a key are merged into the value.
 // Use this to fix OSM data quirks where one logical road is split into differently-named ways.
 const ROAD_NAME_ALIASES = {
-  'Fletcher Bay Road NE':        'Fletcher Bay Road',
-  'Fletcher Bay Road Northeast': 'Fletcher Bay Road',
-  'Fletcher Bay Road NW':        'Fletcher Bay Road',
-  'Fletcher Bay Road Northwest': 'Fletcher Bay Road',
-  'NE Fletcher Bay Road':        'Fletcher Bay Road',
-  'Northeast Fletcher Bay Road': 'Fletcher Bay Road',
-  'NW Fletcher Bay Road':        'Fletcher Bay Road',
-  'Northwest Fletcher Bay Road': 'Fletcher Bay Road',
+  'Fletcher Bay Road NE':           'Fletcher Bay Road',
+  'Fletcher Bay Road Northeast':    'Fletcher Bay Road',
+  'Fletcher Bay Road NW':           'Fletcher Bay Road',
+  'Fletcher Bay Road Northwest':    'Fletcher Bay Road',
+  'NE Fletcher Bay Road':           'Fletcher Bay Road',
+  'Northeast Fletcher Bay Road':    'Fletcher Bay Road',
+  'NW Fletcher Bay Road':           'Fletcher Bay Road',
+  'Northwest Fletcher Bay Road':    'Fletcher Bay Road',
+  'Manitou Beach Drive NE':         'Manitou Beach Drive',
+  'Manitou Beach Drive Northeast':  'Manitou Beach Drive',
+  'NE Manitou Beach Drive':         'Manitou Beach Drive',
+  'Northeast Manitou Beach Drive':  'Manitou Beach Drive',
 };
+
+// Roads to never show as quizzable arterials regardless of OSM classification
+const ARTERIAL_EXCLUDE = new Set([
+  'Ferry Terminal',
+]);
 
 const NAMED_ARTERIALS = new Set([
   'Northeast Winther Road',
@@ -473,6 +485,12 @@ let artOffset      = 0;     // how many branch roads introduced so far
 let artPhase       = 'first-batch'; // 'first-batch' | 'batch' | 'review'
 let nodeToRoads    = {};    // nodeId → Set<roadName>
 let roadNodeIds    = {};    // roadName → Set<nodeId>
+
+// Learn-Arterials (5+5+5) batch-mode state
+const ARTNAME_BATCH_SZ = 5;
+let artNameRoads  = [];      // shuffled arterial road names
+let artNameOffset = 0;
+let artNamePhase  = 'first-batch';
 
 const STYLE_DEFAULT  = { color: '#5577aa', weight: 2.5, opacity: 0.6 };
 const STYLE_ACTIVE   = { color: '#e05252', weight: 6,   opacity: 1   };
@@ -718,22 +736,23 @@ function setMode(mode) {
   quizMode = mode;
   const isSpot    = mode === 'spot';
   const isArt     = mode === 'arterial';
+  const isArtName = mode === 'artname';
   const isLearnGW = mode === 'learn'; // gateway sub-menu, no active quiz
 
-  document.getElementById('name-mode-ui').style.display   = (mode === 'name' || isSpot || isArt) ? '' : 'none';
+  document.getElementById('name-mode-ui').style.display   = (mode === 'name' || isSpot || isArt || isArtName) ? '' : 'none';
   document.getElementById('find-mode-ui').style.display   = mode === 'find'  ? '' : 'none';
   document.getElementById('learn-submenu').style.display  = isLearnGW        ? 'block' : 'none';
   document.getElementById('mode-name-btn').classList.toggle('active', mode === 'name');
   document.getElementById('mode-find-btn').classList.toggle('active', mode === 'find');
-  document.getElementById('mode-learn-btn').classList.toggle('active', isLearnGW || isSpot || isArt);
+  document.getElementById('mode-learn-btn').classList.toggle('active', isLearnGW || isSpot || isArt || isArtName);
   document.getElementById('map').classList.toggle('find-mode', mode === 'find');
   document.getElementById('zoom-btn').style.display       = mode === 'find' ? 'none' : '';
-  document.getElementById('skip-btn').style.display       = (isSpot || isArt) ? 'none' : '';
-  document.getElementById('see-name-btn').style.display   = (isSpot || isArt) ? ''     : 'none';
-  document.getElementById('progress-wrap').style.display  = (isSpot || isArt) ? 'none' : '';
+  document.getElementById('skip-btn').style.display       = (isSpot || isArt || isArtName) ? 'none' : '';
+  document.getElementById('see-name-btn').style.display   = (isSpot || isArt || isArtName) ? ''     : 'none';
+  document.getElementById('progress-wrap').style.display  = (isSpot || isArt || isArtName) ? 'none' : '';
   document.getElementById('lbl-mastered').textContent     = 'Mastered';
   document.getElementById('hint-text').textContent        = 'Press Enter to submit \u2022 Esc to skip';
-  document.getElementById('spot-phase-info').style.display = (isSpot || isArt) ? '' : 'none';
+  document.getElementById('spot-phase-info').style.display = (isSpot || isArt || isArtName) ? '' : 'none';
   document.getElementById('completion').style.display      = 'none';
 
   if (isLearnGW) return; // show sub-menu only, quiz starts when user picks
@@ -1051,15 +1070,139 @@ function showArtTransition() {
 function showArterialPicker() {
   document.getElementById('learn-submenu-btns').style.display = 'none';
   document.getElementById('arterial-picker').style.display    = 'block';
-  const list = document.getElementById('arterial-list');
-  list.innerHTML = '';
-  for (const name of getArterials()) {
-    const div = document.createElement('div');
-    div.className   = 'arterial-item';
-    div.textContent = name;
-    div.addEventListener('click', () => startArterialMode(name));
-    list.appendChild(div);
+  const list     = document.getElementById('arterial-list');
+  const search   = document.getElementById('arterial-search');
+  const arterials = getArterials();
+
+  function renderList(filter) {
+    list.innerHTML = '';
+    const q = filter.toLowerCase();
+    for (const name of arterials) {
+      if (q && !name.toLowerCase().includes(q)) continue;
+      const div = document.createElement('div');
+      div.className   = 'arterial-item';
+      div.textContent = name;
+      div.addEventListener('click', () => { search.value = ''; startArterialMode(name); });
+      list.appendChild(div);
+    }
   }
+
+  search.value = '';
+  search.oninput = () => renderList(search.value);
+  renderList('');
+  search.focus();
+}
+
+// ── Learn-Arterials helpers ───────────────────────────────────────────────────
+
+function artNameActiveSet() {
+  if (artNamePhase === 'review') return artNameRoads.slice(0, artNameOffset);
+  return artNameRoads.slice(Math.max(0, artNameOffset - ARTNAME_BATCH_SZ), artNameOffset);
+}
+
+function updateArtNamePhaseInfo() {
+  const el = document.getElementById('spot-phase-info');
+  if (!el) return;
+  if (quizMode !== 'artname') { el.style.display = 'none'; return; }
+  const batch = Math.ceil(artNameOffset / ARTNAME_BATCH_SZ);
+  const msgs = {
+    'first-batch': `🗺️ Learn these ${artNameOffset} arterials`,
+    'batch':       `🗺️ Batch ${batch} — ${artNameOffset} of ${artNameRoads.length} arterials`,
+    'review':      `🔁 Review — all ${artNameOffset} arterials so far`,
+  };
+  el.textContent   = msgs[artNamePhase] || '';
+  el.style.display = el.textContent ? '' : 'none';
+}
+
+function advanceArtNameBatch() {
+  document.getElementById('completion').style.display = 'none';
+  artNameOffset = Math.min(artNameOffset + ARTNAME_BATCH_SZ, artNameRoads.length);
+  artNamePhase  = 'batch';
+  quizQueue     = shuffle([...artNameRoads.slice(artNameOffset - ARTNAME_BATCH_SZ, artNameOffset)]);
+  updateArtNamePhaseInfo(); updateRoadList(); nextQuestion();
+}
+
+function showArtNameTransition() {
+  if (currentRoad) { setRoadStyle(currentRoad, STYLE_DEFAULT); currentRoad = null; }
+  const el      = document.getElementById('completion');
+  const seen    = artNameOffset;
+  const total   = artNameRoads.length;
+  const hasMore = seen < total;
+  const nextN   = Math.min(ARTNAME_BATCH_SZ, total - seen);
+
+  if (artNamePhase === 'first-batch') {
+    el.innerHTML = hasMore
+      ? `<div>🎉 First ${seen} arterials nailed!</div>
+         <div class="btn-row" style="margin-top:10px;">
+           <button class="btn btn-secondary" id="an-redo5">Redo these ${seen}</button>
+           <button class="btn btn-primary"   id="an-more">+ ${nextN} more →</button>
+         </div>`
+      : `<div>🏆 You know all arterials!</div>
+         <button class="btn btn-secondary" style="margin-top:10px;width:100%" id="an-again">Go again</button>`;
+    document.getElementById('an-redo5')?.addEventListener('click', () => {
+      el.style.display = 'none';
+      artNameRoads.slice(0, artNameOffset).forEach(n => mastered.delete(n));
+      quizQueue = shuffle([...artNameActiveSet()]);
+      updateArtNamePhaseInfo(); updateRoadList(); nextQuestion();
+    });
+    document.getElementById('an-more')?.addEventListener('click', advanceArtNameBatch);
+    document.getElementById('an-again')?.addEventListener('click', () => {
+      el.style.display = 'none'; mastered.clear();
+      artNamePhase = 'review'; artNameOffset = artNameRoads.length;
+      quizQueue = shuffle([...artNameRoads]);
+      updateArtNamePhaseInfo(); updateRoadList(); nextQuestion();
+    });
+
+  } else if (artNamePhase === 'batch') {
+    const batchSz = artNameRoads.slice(artNameOffset - ARTNAME_BATCH_SZ, artNameOffset).length;
+    el.innerHTML = hasMore
+      ? `<div>🎯 Nice! Those ${batchSz} arterials are down!</div>
+         <div class="btn-row" style="margin-top:10px;">
+           <button class="btn btn-secondary" id="an-redo5">Redo these ${batchSz}</button>
+           <button class="btn btn-primary"   id="an-more">+ ${nextN} more →</button>
+         </div>`
+      : `<div>🎯 Last batch done!</div>
+         <div class="btn-row" style="margin-top:10px;">
+           <button class="btn btn-secondary" id="an-redo5">Redo these ${batchSz}</button>
+           <button class="btn btn-primary"   id="an-review">Review all ${seen} →</button>
+         </div>`;
+    document.getElementById('an-redo5').addEventListener('click', () => {
+      el.style.display = 'none';
+      artNameRoads.slice(artNameOffset - ARTNAME_BATCH_SZ, artNameOffset).forEach(n => mastered.delete(n));
+      quizQueue = shuffle([...artNameRoads.slice(artNameOffset - ARTNAME_BATCH_SZ, artNameOffset)]);
+      updateArtNamePhaseInfo(); updateRoadList(); nextQuestion();
+    });
+    document.getElementById('an-more')?.addEventListener('click', advanceArtNameBatch);
+    document.getElementById('an-review')?.addEventListener('click', () => {
+      el.style.display = 'none';
+      artNamePhase = 'review'; mastered.clear();
+      quizQueue = shuffle([...artNameActiveSet()]);
+      updateArtNamePhaseInfo(); updateRoadList(); nextQuestion();
+    });
+
+  } else { // review
+    el.innerHTML = hasMore
+      ? `<div>🔁 Review batch done!</div>
+         <div class="btn-row" style="margin-top:10px;">
+           <button class="btn btn-secondary" id="an-redo">Redo review</button>
+           <button class="btn btn-primary"   id="an-more">+ ${nextN} more →</button>
+         </div>`
+      : `<div>🏆 You've mastered all arterials!</div>
+         <button class="btn btn-secondary" style="margin-top:10px;width:100%" id="an-again">Go again</button>`;
+    document.getElementById('an-redo')?.addEventListener('click', () => {
+      el.style.display = 'none'; artNamePhase = 'review'; mastered.clear();
+      quizQueue = shuffle([...artNameActiveSet()]);
+      updateArtNamePhaseInfo(); updateRoadList(); nextQuestion();
+    });
+    document.getElementById('an-more')?.addEventListener('click', advanceArtNameBatch);
+    document.getElementById('an-again')?.addEventListener('click', () => {
+      el.style.display = 'none'; mastered.clear();
+      artNamePhase = 'review'; artNameOffset = artNameRoads.length;
+      quizQueue = shuffle([...artNameRoads]);
+      updateArtNamePhaseInfo(); updateRoadList(); nextQuestion();
+    });
+  }
+  el.style.display = 'block';
 }
 
 function startArterialMode(name) {
@@ -1101,6 +1244,14 @@ function startQuiz() {
     updateArtPhaseInfo(); updateRoadList(); nextQuestion();
     return;
   }
+  if (quizMode === 'artname') {
+    artNameRoads  = shuffle([...arterialRoadNames]);
+    artNameOffset = Math.min(ARTNAME_BATCH_SZ, artNameRoads.length);
+    artNamePhase  = 'first-batch';
+    quizQueue     = shuffle([...artNameActiveSet()]);
+    updateArtNamePhaseInfo(); updateRoadList(); nextQuestion();
+    return;
+  }
   quizQueue = shuffle([...activeNames()]);
   updateSpotPhaseInfo(); updateRoadList(); nextQuestion();
 }
@@ -1121,6 +1272,10 @@ function nextNameQuestion() {
   } else if (quizMode === 'arterial') {
     const unmastered = artActiveSet().filter(n => !mastered.has(n));
     if (unmastered.length === 0) { showArtTransition(); return; }
+    if (quizQueue.length === 0)  quizQueue = shuffle([...unmastered]);
+  } else if (quizMode === 'artname') {
+    const unmastered = artNameActiveSet().filter(n => !mastered.has(n));
+    if (unmastered.length === 0) { showArtNameTransition(); return; }
     if (quizQueue.length === 0)  quizQueue = shuffle([...unmastered]);
   } else {
     if (quizQueue.length === 0) {
@@ -1322,6 +1477,10 @@ function updateScore() {
     const pset    = artActiveSet();
     masteredCount = pset.filter(n => mastered.has(n)).length;
     totalRoads    = pset.length;
+  } else if (quizMode === 'artname') {
+    const pset    = artNameActiveSet();
+    masteredCount = pset.filter(n => mastered.has(n)).length;
+    totalRoads    = pset.length;
   } else {
     masteredCount = mastered.size;
     totalRoads    = activeNames().length;
@@ -1342,7 +1501,9 @@ function updateRoadList() {
     ? spotSortedRoads.slice(0, spotOffset)
     : quizMode === 'arterial' && artOffset > 0
       ? artRoads.slice(0, artOffset)
-      : activeNames();
+      : quizMode === 'artname' && artNameOffset > 0
+        ? artNameRoads.slice(0, artNameOffset)
+        : activeNames();
   const list = document.getElementById('road-list');
   list.innerHTML = '';
   for (const name of names) {
@@ -1414,6 +1575,7 @@ document.getElementById('mode-find-btn').addEventListener('click',  () => setMod
 document.getElementById('mode-learn-btn').addEventListener('click', () => setMode('learn'));
 document.getElementById('learn-pick-btn').addEventListener('click',      enterSpotPickMode);
 document.getElementById('learn-random-btn').addEventListener('click',    pickRandomSpot);
+document.getElementById('learn-artname-btn').addEventListener('click',   () => setMode('artname'));
 document.getElementById('learn-arterial-btn').addEventListener('click',  showArterialPicker);
 document.getElementById('arterial-back-btn').addEventListener('click', () => {
   document.getElementById('arterial-picker').style.display    = 'none';
@@ -1438,8 +1600,10 @@ async function init() {
 
     // Build arterial road list: roads with an arterial OSM type, plus any named overrides
     arterialRoadNames = roadNames.filter(name =>
-      NAMED_ARTERIALS.has(name) ||
-      (roadHighwayTypes[name] && [...roadHighwayTypes[name]].some(t => ARTERIAL_TYPES.has(t)))
+      !ARTERIAL_EXCLUDE.has(name) && (
+        NAMED_ARTERIALS.has(name) ||
+        (roadHighwayTypes[name] && [...roadHighwayTypes[name]].some(t => ARTERIAL_TYPES.has(t)))
+      )
     );
 
     updateRoadCountLabel(); renderRoads(); updateRoadList();
