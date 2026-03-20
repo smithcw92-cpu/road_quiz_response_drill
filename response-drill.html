@@ -110,15 +110,18 @@
       border-radius: 6px; color: #dde1ea; font-size: 0.9rem;
       padding: 9px 11px; outline: none; margin-bottom: 8px;
     }
-    #answer-input:focus  { border-color: #4a5570; }
-    #answer-input.ok     { border-color: #4caf50; background: rgba(76,175,80,.08); }
-    #answer-input.bad    { border-color: #e05252; background: rgba(224,82,82,.08); }
-    #answer-input.skip   { border-color: #ffa726; }
-    #feedback { font-size: 0.8rem; min-height: 1.2em; margin-bottom: 8px; }
-    .fb-ok   { color: #4caf50; }
-    .fb-bad  { color: #e05252; }
-    .fb-skip { color: #ffa726; }
-    .fb-info { color: #7a8299; }
+    #answer-input:focus      { border-color: #e05252; }
+    #answer-input.state-ok   { border-color: #4caf50; background: #141e14; }
+    #answer-input.state-bad  { border-color: #e05252; background: #1e1414; }
+    #answer-input.state-skip { border-color: #ff9800; background: #1e1a14; }
+    #feedback {
+      font-size: 0.82rem; padding: 7px 9px; border-radius: 5px;
+      margin-bottom: 8px; display: none; line-height: 1.4;
+    }
+    #feedback.fb-ok   { display: block; background: #142014; color: #66bb6a; border: 1px solid #3a6a3a; }
+    #feedback.fb-bad  { display: block; background: #201414; color: #ef5350; border: 1px solid #6a3a3a; }
+    #feedback.fb-skip { display: block; background: #1e1a10; color: #ffa726; border: 1px solid #6a5a2a; }
+    #feedback.fb-info { display: block; background: #0f1a2e; color: #4a90e2; border: 1px solid #1a3a6a; }
     #btn-row { display: flex; gap: 6px; }
     .abtn {
       flex: 1; padding: 8px; border-radius: 6px; border: none;
@@ -129,24 +132,30 @@
     .abtn:disabled { opacity: 0.4; pointer-events: none; }
     #submit-btn { background: #e05252; color: #fff; }
     #hint-btn   { background: #2a3050; color: #7a8299; border: 1px solid #3a4060; display: none; }
-    #skip-btn   { background: #2a3050; color: #7a8299; border: 1px solid #3a4060; }
+    #skip-btn   { background: #2a3050; color: #9aa0b8; border: 1px solid #3a4060; }
 
     /* Completion */
     #completion {
       display: none;
-      background: rgba(76,175,80,.12); border: 1px solid rgba(76,175,80,.4);
-      border-radius: 6px; padding: 11px; font-size: 0.82rem; color: #4caf50;
-      line-height: 1.5;
+      background: #142014; border: 1px solid #3a6a3a;
+      border-radius: 7px; padding: 13px; font-size: 0.88rem; color: #66bb6a;
+      line-height: 1.5; text-align: center;
     }
 
     /* Controls */
     #new-call-btn {
       width: 100%; padding: 9px; background: #2a3050; border: 1px solid #3a4060;
       border-radius: 6px; color: #aab0c4; cursor: pointer; font-size: 0.85rem;
-      font-weight: 600; margin-bottom: 8px; transition: background .15s;
+      font-weight: 600; margin-bottom: 6px; transition: background .15s;
     }
     #new-call-btn:hover:not(:disabled) { background: #323d60; }
     #new-call-btn:disabled { opacity: 0.5; pointer-events: none; }
+    #advance-btn {
+      display: none; width: 100%; padding: 6px; background: #12151c; border: 1px solid #2a3050;
+      border-radius: 6px; color: #5a6380; cursor: pointer; font-size: 0.78rem;
+      font-weight: 600; margin-bottom: 8px; transition: background .15s;
+    }
+    #advance-btn:hover { background: #1a1f2e; color: #7a8299; }
     .mode-group-label {
       font-size: 0.67rem; font-weight: 700; text-transform: uppercase;
       letter-spacing: 1px; color: #5a6380; margin-bottom: 5px;
@@ -284,7 +293,7 @@
         <div id="btn-row">
           <button id="submit-btn" class="abtn">Submit</button>
           <button id="hint-btn"   class="abtn">Hint</button>
-          <button id="skip-btn"   class="abtn">Skip</button>
+          <button id="skip-btn"   class="abtn">Show</button>
         </div>
       </div>
 
@@ -292,6 +301,7 @@
 
       <div class="panel">
         <button id="new-call-btn">New Call</button>
+        <button id="advance-btn">Advance</button>
         <div class="mode-group-label">Route Type</div>
         <div id="route-mode-row" style="display:flex;gap:6px;margin-bottom:8px;">
           <button class="mode-btn active" id="rmode-direct">Most Direct Route</button>
@@ -406,6 +416,9 @@ let routeMode  = 'direct'; // 'direct' | 'any'
 let wrongCt       = 0;
 let mapHidden     = false;
 let routeComplete = false;
+let hadSkip       = false;
+let stepRevealed  = false;
+let redoCall      = null;
 let sess       = { calls: 0, correct: 0, total: 0 };
 let roadNameSet = new Set();
 let roadWays    = [];          // road way geometries for dispatch mode
@@ -675,9 +688,14 @@ async function startCall(destOverride) {
   document.getElementById('completion').style.display = 'none';
   document.getElementById('step-list').innerHTML = '';
   document.getElementById('hint-btn').style.display = 'none';
-  wrongCt    = 0;
-  userSteps  = [];
-  document.getElementById('skip-btn').textContent = routeMode === 'any' ? 'Arrived' : 'Skip';
+  wrongCt      = 0;
+  userSteps    = [];
+  hadSkip      = false;
+  stepRevealed = false;
+  redoCall     = null;
+  document.getElementById('new-call-btn').textContent = 'New Call';
+  document.getElementById('advance-btn').style.display = 'none';
+  document.getElementById('skip-btn').textContent = routeMode === 'any' ? 'Arrived' : 'Show';
 
   let dest = destOverride;
   let rt;
@@ -756,7 +774,7 @@ function checkAnswer() {
     if (matched) {
       userSteps.push(matched);
       sess.correct++; sess.total++; wrongCt = 0;
-      inp.className = 'ok';
+      inp.className = 'state-ok';
       fb(`✓  ${matched}`, 'fb-ok');
       addStep(matched, 'done');
       for (const w of roadWays.filter(w => w.name === matched)) {
@@ -766,7 +784,7 @@ function checkAnswer() {
       setTimeout(() => { clearInput(); fb('', ''); document.getElementById('answer-input').focus(); }, 700);
     } else {
       sess.total++; wrongCt++;
-      inp.className = 'bad';
+      inp.className = 'state-bad';
       fb('Not a recognized road — check the name.', 'fb-bad');
     }
     updateStats();
@@ -777,11 +795,22 @@ function checkAnswer() {
   const expected = route.steps[stepIdx].name;
 
   if (accepted(val, expected)) {
-    sess.correct++; sess.total++; wrongCt = 0;
-    inp.className = 'ok';
-    fb(`✓  ${expected}`, 'fb-ok');
-    drawLine(route.steps[stepIdx].geometry, '#4caf50');
-    addStep(expected, 'done');
+    if (stepRevealed) {
+      // Typed it in after being shown — counts as skipped
+      sess.total++;
+      hadSkip = true;
+      inp.className = 'state-skip';
+      fb(`→  ${expected}`, 'fb-skip');
+      drawLine(route.steps[stepIdx].geometry, '#ffa726');
+      addStep(expected, 'skipped');
+      stepRevealed = false;
+    } else {
+      sess.correct++; sess.total++; wrongCt = 0;
+      inp.className = 'state-ok';
+      fb(`✓  ${expected}`, 'fb-ok');
+      drawLine(route.steps[stepIdx].geometry, '#4caf50');
+      addStep(expected, 'done');
+    }
     stepIdx++;
     document.getElementById('hint-btn').style.display = 'none';
 
@@ -792,10 +821,12 @@ function checkAnswer() {
       setTimeout(() => { clearInput(); fb('', ''); document.getElementById('answer-input').focus(); }, 700);
     }
   } else {
-    sess.total++; wrongCt++;
-    inp.className = 'bad';
-    fb('Not quite — try again.', 'fb-bad');
-    if (wrongCt >= 2) document.getElementById('hint-btn').style.display = '';
+    if (!stepRevealed) {
+      sess.total++; wrongCt++;
+      if (wrongCt >= 2) document.getElementById('hint-btn').style.display = '';
+    }
+    inp.className = 'state-bad';
+    fb(stepRevealed ? 'Almost — type it exactly as shown.' : 'Not quite — try again.', 'fb-bad');
   }
   updateStats();
 }
@@ -820,8 +851,10 @@ function doArrive() {
   drawLine(route.fullGeometry, '#4a90e2', '8 5');
   const comp = document.getElementById('completion');
   comp.style.display = 'block';
-  comp.textContent = `Arrived! You named ${userSteps.length} road${userSteps.length !== 1 ? 's' : ''}. OSRM optimal: ${osrmRoads} roads, ${mi} mi (shown in blue). Press Enter or "New Call" to continue.`;
+  comp.textContent = `Arrived! You named ${userSteps.length} road${userSteps.length !== 1 ? 's' : ''}. OSRM optimal: ${osrmRoads} roads, ${mi} mi (shown in blue). Press Enter or "Advance" for a new call.`;
   document.getElementById('step-counter').textContent = `${userSteps.length} roads named`;
+  document.getElementById('new-call-btn').textContent = 'Advance';
+  redoCall = null;
   showRouteBanner(`${userSteps.length} road${userSteps.length !== 1 ? 's' : ''} named`);
   updateStats();
 }
@@ -829,22 +862,15 @@ function doArrive() {
 function doSkip() {
   if (routeMode === 'any') { doArrive(); return; }
   if (!active || !route || stepIdx >= route.steps.length) return;
+  if (stepRevealed) return; // already shown — wait for them to type it
   const expected = route.steps[stepIdx].name;
-  sess.total++; wrongCt = 0;
-  document.getElementById('answer-input').className = 'skip';
-  fb(`Skipped: ${expected}`, 'fb-skip');
-  drawLine(route.steps[stepIdx].geometry, '#ffa726');
-  addStep(expected, 'skipped');
-  stepIdx++;
+  stepRevealed = true;
+  wrongCt = 0;
+  document.getElementById('answer-input').value = '';
+  document.getElementById('answer-input').className = 'state-skip';
   document.getElementById('hint-btn').style.display = 'none';
-
-  if (stepIdx >= route.steps.length) {
-    completeRoute();
-  } else {
-    updateCounter();
-    setTimeout(() => { clearInput(); fb('', ''); document.getElementById('answer-input').focus(); }, 1000);
-  }
-  updateStats();
+  fb(`Answer: ${expected}`, 'fb-skip');
+  document.getElementById('answer-input').focus();
 }
 
 function completeRoute() {
@@ -854,10 +880,21 @@ function completeRoute() {
   const total = route.steps.length;
   const comp  = document.getElementById('completion');
   comp.style.display = 'block';
-  comp.textContent = `Route complete — ${total} roads, ${mi} mi. Press Enter or "New Call" to continue.`;
-  document.getElementById('step-counter').textContent = `All ${total} roads complete`;
   // Draw full route as faint dashed overlay
-  drawLine(route.fullGeometry, '#4caf50', '8 5');
+  drawLine(route.fullGeometry, hadSkip ? '#ffa726' : '#4caf50', '8 5');
+  const btn = document.getElementById('new-call-btn');
+  if (hadSkip) {
+    comp.textContent = `Route complete — ${total} roads, ${mi} mi. Some roads were shown — redo to practice again, or advance for a new call.`;
+    btn.textContent = 'Redo';
+    redoCall = { lat: call.lat, lon: call.lon, label: call.label };
+    document.getElementById('advance-btn').style.display = 'block';
+  } else {
+    comp.textContent = `Route complete — ${total} roads, ${mi} mi. Press Enter or "Advance" for a new call.`;
+    btn.textContent = 'Advance';
+    redoCall = null;
+    document.getElementById('advance-btn').style.display = 'none';
+  }
+  document.getElementById('step-counter').textContent = `All ${total} roads complete`;
   showRouteBanner(`${total} roads · ${mi} mi`);
   updateStats();
 }
@@ -971,6 +1008,7 @@ document.getElementById('map-toggle-btn').addEventListener('click', () => toggle
 document.getElementById('reveal-btn').addEventListener('click',     () => toggleMap(true));
 
 document.getElementById('new-call-btn').addEventListener('click', () => {
+  if (routeComplete && hadSkip && redoCall) { startCall(redoCall); return; }
   if (mode === 'intersection') {
     startCall();
   } else if (mode === 'common') {
@@ -1043,7 +1081,7 @@ document.getElementById('rmode-direct').addEventListener('click', () => {
   routeMode = 'direct';
   document.getElementById('rmode-direct').classList.add('active');
   document.getElementById('rmode-any').classList.remove('active');
-  document.getElementById('skip-btn').textContent = 'Skip';
+  document.getElementById('skip-btn').textContent = 'Show';
 });
 
 document.getElementById('rmode-any').addEventListener('click', () => {
