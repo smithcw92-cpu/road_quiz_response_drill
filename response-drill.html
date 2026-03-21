@@ -311,7 +311,7 @@
         <div id="mode-row">
           <button class="mode-btn active" id="mode-ix">Random</button>
           <button class="mode-btn"        id="mode-addr">Address</button>
-          <button class="mode-btn"        id="mode-common">Common Spots</button>
+          <button class="mode-btn"        id="mode-common">Probie Book</button>
           <button class="mode-btn"        id="mode-dispatch">Dispatch</button>
         </div>
         <div id="addr-wrap" class="hidden">
@@ -1006,6 +1006,11 @@ document.getElementById('hint-btn').addEventListener('click',   doHint);
 document.getElementById('skip-btn').addEventListener('click',   doSkip);
 document.getElementById('map-toggle-btn').addEventListener('click', () => toggleMap());
 document.getElementById('reveal-btn').addEventListener('click',     () => toggleMap(true));
+
+document.getElementById('advance-btn').addEventListener('click', () => {
+  hadSkip = false; redoCall = null;
+  document.getElementById('new-call-btn').click();
+});
 
 document.getElementById('new-call-btn').addEventListener('click', () => {
   if (routeComplete && hadSkip && redoCall) { startCall(redoCall); return; }
