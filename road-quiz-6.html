@@ -1295,6 +1295,7 @@ function nextNameQuestion() {
 
 function nextFindQuestion() {
   clearFindMarkers();
+  map.setView([47.640, -122.520], 12);
   if (currentRoad) setRoadStyle(currentRoad, STYLE_DEFAULT);
   if (quizQueue.length === 0) {
     const unmastered = activeNames().filter(n => !mastered.has(n));
@@ -1348,14 +1349,25 @@ function handleFindClick(e) {
   }
 
   roadLayers[currentRoad]?.eachLayer(l => l.bringToFront?.());
-  zoomToRoad(currentRoad);
+  if (isCorrect) {
+    zoomToRoad(currentRoad);
+  } else {
+    const roadBounds = roadLayers[currentRoad]?.getBounds();
+    if (roadBounds) {
+      map.fitBounds(roadBounds.extend(e.latlng), { padding: [60, 60] });
+    } else {
+      zoomToRoad(currentRoad);
+    }
+  }
 
   document.getElementById('find-next-btn').style.display = '';
   document.getElementById('find-skip-btn').style.display = 'none';
   document.getElementById('find-hint').style.display = 'none';
 
   updateScore(); updateRoadList();
-  pendingTimer = setTimeout(nextQuestion, isCorrect ? 2500 : 3500);
+  if (isCorrect) {
+    pendingTimer = setTimeout(nextQuestion, 2500);
+  }
 }
 
 function skipFindRoad() {
