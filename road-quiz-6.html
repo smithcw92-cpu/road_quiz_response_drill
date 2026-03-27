@@ -349,6 +349,7 @@
           </div>
           <div id="arterial-picker">
             <div style="font-size:0.8rem;color:#aab0c4;margin-bottom:6px;">Choose a main road to quiz its side streets:</div>
+            <button id="deep-branch-btn" style="width:100%;margin-bottom:6px;padding:5px 8px;border-radius:5px;border:1px solid #2a3050;background:#1a1f2e;color:#5a6380;cursor:pointer;font-size:0.78rem;font-weight:600;text-align:left;transition:all 0.15s;">🌐 Side Streets + Small Streets: OFF</button>
             <input id="arterial-search" type="text" placeholder="Search arterials…" autocomplete="off" spellcheck="false"
               style="width:100%;box-sizing:border-box;padding:5px 8px;border-radius:5px;border:1px solid #2a3050;background:#0d1117;color:#c5cde8;font-size:0.82rem;margin-bottom:4px;" />
             <div id="arterial-list"></div>
@@ -483,6 +484,7 @@ let artOffset      = 0;     // how many branch roads introduced so far
 let artPhase       = 'first-batch'; // 'first-batch' | 'batch' | 'review'
 let nodeToRoads    = {};    // nodeId → Set<roadName>
 let roadNodeIds    = {};    // roadName → Set<nodeId>
+let deepBranch     = false; // when true, flood-fill to small streets too
 
 // Learn-Arterials (5+5+5) batch-mode state
 const ARTNAME_BATCH_SZ = 5;
@@ -945,6 +947,28 @@ function getBranchRoads(name) {
   return [...touching].filter(n => active.has(n)).sort();
 }
 
+function getDeepBranchRoads(name) {
+  // BFS flood-fill from arterial — traverse through non-arterials,
+  // stop at other arterials (don't pull in their networks)
+  const arterialSet = new Set(arterialRoadNames);
+  const visited = new Set([name]);
+  const queue = [name];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    for (const nodeId of (roadNodeIds[current] || new Set())) {
+      for (const rn of (nodeToRoads[nodeId] || new Set())) {
+        if (!visited.has(rn)) {
+          visited.add(rn);
+          if (!arterialSet.has(rn)) queue.push(rn); // don't traverse through other arterials
+        }
+      }
+    }
+  }
+  visited.delete(name);
+  const active = new Set(activeNames());
+  return [...visited].filter(n => active.has(n) && !arterialSet.has(n)).sort();
+}
+
 function artActiveSet() {
   if (artPhase === 'review') return artRoads.slice(0, artOffset);
   return artRoads.slice(Math.max(0, artOffset - ART_BATCH_SZ), artOffset);
@@ -1209,7 +1233,7 @@ function startArterialMode(name) {
   // Set up arterial state before setMode() calls startQuiz()
   if (artName && artName !== name) setRoadStyle(artName, STYLE_DEFAULT);
   artName   = name;
-  artRoads  = getBranchRoads(name);
+  artRoads  = deepBranch ? getDeepBranchRoads(name) : getBranchRoads(name);
   artOffset = Math.min(ART_BATCH_SZ, artRoads.length);
   artPhase  = 'first-batch';
   if (artRoads.length === 0) {
@@ -1590,6 +1614,14 @@ document.getElementById('learn-arterial-btn').addEventListener('click',  showArt
 document.getElementById('arterial-back-btn').addEventListener('click', () => {
   document.getElementById('arterial-picker').style.display    = 'none';
   document.getElementById('learn-submenu-btns').style.display = '';
+});
+document.getElementById('deep-branch-btn').addEventListener('click', () => {
+  deepBranch = !deepBranch;
+  const btn = document.getElementById('deep-branch-btn');
+  btn.textContent = `🌐 Side Streets + Small Streets: ${deepBranch ? 'ON' : 'OFF'}`;
+  btn.style.background   = deepBranch ? '#1a3a2a' : '#1a1f2e';
+  btn.style.color        = deepBranch ? '#4caf50' : '#5a6380';
+  btn.style.borderColor  = deepBranch ? '#3a7a4a' : '#2a3050';
 });
 document.getElementById('overlay-names-btn').addEventListener('click',   toggleRoadNameOverlay);
 document.getElementById('see-name-btn').addEventListener('click',   seeRoadName);
