@@ -349,7 +349,7 @@
           </div>
           <div id="arterial-picker">
             <div style="font-size:0.8rem;color:#aab0c4;margin-bottom:6px;">Choose a main road to quiz its side streets:</div>
-            <button id="deep-branch-btn" style="width:100%;margin-bottom:6px;padding:5px 8px;border-radius:5px;border:1px solid #2a3050;background:#1a1f2e;color:#5a6380;cursor:pointer;font-size:0.78rem;font-weight:600;text-align:left;transition:all 0.15s;">🌐 Side Streets + Small Streets: OFF</button>
+            <button id="deep-branch-btn" style="width:100%;margin-bottom:6px;padding:5px 8px;border-radius:5px;border:1px solid #2a3050;background:#1a1f2e;color:#5a6380;cursor:pointer;font-size:0.78rem;font-weight:600;text-align:left;transition:all 0.15s;">🌐 Include Small Streets: OFF</button>
             <input id="arterial-search" type="text" placeholder="Search arterials…" autocomplete="off" spellcheck="false"
               style="width:100%;box-sizing:border-box;padding:5px 8px;border-radius:5px;border:1px solid #2a3050;background:#0d1117;color:#c5cde8;font-size:0.82rem;margin-bottom:4px;" />
             <div id="arterial-list"></div>
@@ -1618,7 +1618,7 @@ document.getElementById('arterial-back-btn').addEventListener('click', () => {
 document.getElementById('deep-branch-btn').addEventListener('click', () => {
   deepBranch = !deepBranch;
   const btn = document.getElementById('deep-branch-btn');
-  btn.textContent = `🌐 Side Streets + Small Streets: ${deepBranch ? 'ON' : 'OFF'}`;
+  btn.textContent = `🌐 Include Small Streets: ${deepBranch ? 'ON' : 'OFF'}`;
   btn.style.background   = deepBranch ? '#1a3a2a' : '#1a1f2e';
   btn.style.color        = deepBranch ? '#4caf50' : '#5a6380';
   btn.style.borderColor  = deepBranch ? '#3a7a4a' : '#2a3050';
