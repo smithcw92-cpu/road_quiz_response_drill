@@ -170,16 +170,15 @@
     #arterial-list { max-height: 200px; overflow-y: auto; border: 1px solid #2a3050; border-radius: 6px; padding: 4px; margin-top: 4px; }
     .arterial-item { padding: 5px 8px; cursor: pointer; border-radius: 4px; font-size: 0.82rem; color: #c5cde8; margin-bottom: 2px; }
     .arterial-item:hover { background: #2a3050; color: #fff; }
-    .road-name-label {
-      background: rgba(20,26,45,0.88);
-      border: 1px solid #3a4a70;
-      border-radius: 3px;
-      color: #c8d0e8;
-      font-size: 0.65rem;
-      font-weight: 600;
-      padding: 1px 5px;
-      white-space: nowrap;
-      pointer-events: none;
+    #arterial-sides-status {
+      display: none;
+      font-size: 0.75rem;
+      color: #4caf50;
+      background: #142014;
+      border: 1px solid #3a6a3a;
+      border-radius: 5px;
+      padding: 5px 8px;
+      margin-top: 7px;
     }
     #area-status {
       display: none;
@@ -371,23 +370,24 @@
       <div id="completion"></div>
       <div class="panel">
         <div class="panel-title">Options</div>
-        <div class="opt-row">
+        <div class="opt-row" id="opt-row-zoom-reset">
           <button class="btn btn-secondary" id="zoom-btn">Zoom to Road</button>
           <button class="btn btn-secondary" id="reset-btn">Reset Quiz</button>
         </div>
-        <div class="opt-row" style="margin-top:7px;">
+        <div class="opt-row" id="opt-row-arterial" style="margin-top:7px;">
           <button class="btn btn-arterial" id="arterial-btn">&#9654; Arterials Only</button>
         </div>
         <div id="arterial-status"></div>
+        <div class="opt-row" id="opt-row-arterial-sides" style="margin-top:7px;">
+          <button class="btn btn-arterial" id="arterial-sides-btn">&#9654; Arterials + Side Streets</button>
+        </div>
+        <div id="arterial-sides-status"></div>
         <div class="opt-row" style="margin-top:7px;">
           <button class="btn btn-area"      id="area-btn">&#9635; Select Area</button>
           <button class="btn btn-secondary" id="clear-area-btn" style="display:none;">Clear Area</button>
         </div>
         <div id="area-drawing-hint">Click &amp; drag on the map to draw a box &bull; Esc to cancel</div>
         <div id="area-status"></div>
-        <div class="opt-row" style="margin-top:7px;">
-          <button class="btn btn-secondary" id="overlay-names-btn" style="width:100%;">🏷️ Show Road Names on Map</button>
-        </div>
       </div>
       <div class="panel">
         <div class="panel-title">All Roads <span id="road-count-lbl"></span></div>
@@ -459,9 +459,11 @@ const NAMED_ARTERIALS = new Set([
   'Lovell Avenue Northwest',
   'Weaver Road Northwest',
 ]);
-let arterialRoadNames = [];
-let roadHighwayTypes  = {};
-let arterialOnly      = false;
+let arterialRoadNames    = [];
+let arterialAndSideNames = [];
+let roadHighwayTypes     = {};
+let arterialOnly         = false;
+let arterialAndSides     = false;
 let learnRevealed     = false;
 
 // Spot (5+5+5) batch-mode state
@@ -473,8 +475,6 @@ let spotOffset       = 0;       // how many roads introduced so far
 let spotPhase        = 'first-batch';  // 'first-batch' | 'batch' | 'review'
 let spotDistances    = {};      // road name → squared-degree distance to anchor
 let _spotPickHandler = null;    // pending map click listener for pick-a-spot mode
-let nameLabelsOn     = false;   // whether road name tooltips are visible on the map
-let nameLabels       = {};      // road name → Leaflet tooltip marker
 
 // Arterial (5+5+5) batch-mode state
 const ART_BATCH_SZ = 5;
@@ -665,12 +665,19 @@ function clearAreaSelection() {
 function updateAreaStatus() {
   const el = document.getElementById('area-status');
   if (!activeRoadNames) { el.style.display = 'none'; return; }
-  const visible = arterialOnly ? activeRoadNames.filter(n => arterialRoadNames.includes(n)) : activeRoadNames;
-  el.textContent = `Area filter: ${visible.length} road${visible.length !== 1 ? 's' : ''}` + (arterialOnly ? ' (arterials)' : '');
+  const s = arterialOnly ? new Set(arterialRoadNames) : arterialAndSides ? new Set(arterialAndSideNames) : null;
+  const visible = s ? activeRoadNames.filter(n => s.has(n)) : activeRoadNames;
+  const suffix = arterialOnly ? ' (arterials)' : arterialAndSides ? ' (arterials + sides)' : '';
+  el.textContent = `Area filter: ${visible.length} road${visible.length !== 1 ? 's' : ''}` + suffix;
 }
 
 function toggleArterial() {
   arterialOnly = !arterialOnly;
+  if (arterialOnly && arterialAndSides) {
+    arterialAndSides = false;
+    const sb = document.getElementById('arterial-sides-btn'), ss = document.getElementById('arterial-sides-status');
+    sb.classList.remove('active'); sb.textContent = '▶ Arterials + Side Streets'; ss.style.display = 'none';
+  }
   const btn = document.getElementById('arterial-btn'), status = document.getElementById('arterial-status');
   if (arterialOnly) {
     btn.classList.add('active'); btn.textContent = '▶ Arterials Only ✓';
@@ -678,6 +685,24 @@ function toggleArterial() {
     status.textContent = `${arterialRoadNames.length} arterial road${arterialRoadNames.length !== 1 ? 's' : ''} (primary, secondary, tertiary…)`;
   } else {
     btn.classList.remove('active'); btn.textContent = '▶ Arterials Only'; status.style.display = 'none';
+  }
+  updateAreaStatus(); updateRoadCountLabel(); startQuiz();
+}
+
+function toggleArterialAndSides() {
+  arterialAndSides = !arterialAndSides;
+  if (arterialAndSides && arterialOnly) {
+    arterialOnly = false;
+    const ab = document.getElementById('arterial-btn'), as_ = document.getElementById('arterial-status');
+    ab.classList.remove('active'); ab.textContent = '▶ Arterials Only'; as_.style.display = 'none';
+  }
+  const btn = document.getElementById('arterial-sides-btn'), status = document.getElementById('arterial-sides-status');
+  if (arterialAndSides) {
+    btn.classList.add('active'); btn.textContent = '▶ Arterials + Side Streets ✓';
+    status.style.display = 'block';
+    status.textContent = `${arterialAndSideNames.length} road${arterialAndSideNames.length !== 1 ? 's' : ''} (arterials + connected side streets)`;
+  } else {
+    btn.classList.remove('active'); btn.textContent = '▶ Arterials + Side Streets'; status.style.display = 'none';
   }
   updateAreaStatus(); updateRoadCountLabel(); startQuiz();
 }
@@ -746,6 +771,13 @@ function setMode(mode) {
   document.getElementById('mode-find-btn').classList.toggle('active', mode === 'find');
   document.getElementById('mode-learn-btn').classList.toggle('active', isLearnGW || isSpot || isArt || isArtName);
   document.getElementById('map').classList.toggle('find-mode', mode === 'find');
+  // Hide most options in Learn gateway; keep Select Area visible
+  const learnOnlyRows = ['opt-row-zoom-reset', 'opt-row-arterial', 'opt-row-arterial-sides'];
+  for (const id of learnOnlyRows) document.getElementById(id).style.display = isLearnGW ? 'none' : '';
+  // Status divs are only shown when filters are active — hide in Learn, restore conditionally
+  document.getElementById('arterial-status').style.display       = (!isLearnGW && arterialOnly)      ? 'block' : 'none';
+  document.getElementById('arterial-sides-status').style.display = (!isLearnGW && arterialAndSides)  ? 'block' : 'none';
+
   document.getElementById('zoom-btn').style.display       = mode === 'find' ? 'none' : '';
   document.getElementById('skip-btn').style.display       = 'none';
   document.getElementById('see-name-btn').style.display   = (mode === 'name' || isSpot || isArt || isArtName) ? '' : 'none';
@@ -768,7 +800,8 @@ function shuffle(arr) {
 
 function activeNames() {
   let names = activeRoadNames || roadNames;
-  if (arterialOnly) { const s = new Set(arterialRoadNames); names = names.filter(n => s.has(n)); }
+  if (arterialOnly)      { const s = new Set(arterialRoadNames);    names = names.filter(n => s.has(n)); }
+  if (arterialAndSides)  { const s = new Set(arterialAndSideNames); names = names.filter(n => s.has(n)); }
   return names;
 }
 
@@ -1548,56 +1581,13 @@ function updateRoadList() {
   }
 }
 
-// Road name overlay — permanent tooltips at each road's midpoint
-function roadMidpoint(name) {
-  // Find the longest segment and return its midpoint node
-  const segs = roadsByName[name];
-  if (!segs) return null;
-  let best = segs[0], bestLen = 0;
-  for (const seg of segs) { if (seg.length > bestLen) { bestLen = seg.length; best = seg; } }
-  const mid = best[Math.floor(best.length / 2)];
-  return mid ? L.latLng(mid[0], mid[1]) : null;
-}
-
-function showRoadNameLabels() {
-  for (const name of roadNames) {
-    if (nameLabels[name]) continue;
-    const pt = roadMidpoint(name);
-    if (!pt) continue;
-    nameLabels[name] = L.marker(pt, {
-      icon: L.divIcon({
-        html: `<div class="road-name-label">${name}</div>`,
-        className: '', iconAnchor: [0, 0],
-      }),
-      interactive: false,
-    }).addTo(map);
-  }
-}
-
-function hideRoadNameLabels() {
-  for (const lbl of Object.values(nameLabels)) map.removeLayer(lbl);
-  nameLabels = {};
-}
-
-function toggleRoadNameOverlay() {
-  nameLabelsOn = !nameLabelsOn;
-  const btn = document.getElementById('overlay-names-btn');
-  if (nameLabelsOn) {
-    showRoadNameLabels();
-    btn.textContent = '🏷️ Hide Road Names';
-    btn.style.color = '#4a90e2';
-  } else {
-    hideRoadNameLabels();
-    btn.textContent = '🏷️ Show Road Names on Map';
-    btn.style.color = '';
-  }
-}
 
 document.getElementById('submit-btn').addEventListener('click', checkAnswer);
 document.getElementById('skip-btn').addEventListener('click',   skipRoad);
 document.getElementById('zoom-btn').addEventListener('click',   () => { if (currentRoad) zoomToRoad(currentRoad); });
 document.getElementById('reset-btn').addEventListener('click',  () => { if (confirm('Reset the quiz and start over?')) startQuiz(); });
-document.getElementById('arterial-btn').addEventListener('click',  toggleArterial);
+document.getElementById('arterial-btn').addEventListener('click',       toggleArterial);
+document.getElementById('arterial-sides-btn').addEventListener('click', toggleArterialAndSides);
 document.getElementById('area-btn').addEventListener('click',       enterSelectionMode);
 document.getElementById('clear-area-btn').addEventListener('click', clearAreaSelection);
 document.getElementById('answer-input').addEventListener('keydown', e => {
@@ -1623,7 +1613,6 @@ document.getElementById('deep-branch-btn').addEventListener('click', () => {
   btn.style.color        = deepBranch ? '#4caf50' : '#5a6380';
   btn.style.borderColor  = deepBranch ? '#3a7a4a' : '#2a3050';
 });
-document.getElementById('overlay-names-btn').addEventListener('click',   toggleRoadNameOverlay);
 document.getElementById('see-name-btn').addEventListener('click',   seeRoadName);
 document.getElementById('find-next-btn').addEventListener('click', () => {
   if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
@@ -1647,6 +1636,19 @@ async function init() {
         (roadHighwayTypes[name] && [...roadHighwayTypes[name]].some(t => ARTERIAL_TYPES.has(t)))
       )
     );
+
+    // Build arterials + side streets list: arterials + all roads sharing a node with any arterial
+    {
+      const artAndSidesSet = new Set(arterialRoadNames);
+      for (const artRoad of arterialRoadNames) {
+        for (const nodeId of (roadNodeIds[artRoad] || new Set())) {
+          for (const rn of (nodeToRoads[nodeId] || new Set())) {
+            artAndSidesSet.add(rn);
+          }
+        }
+      }
+      arterialAndSideNames = roadNames.filter(n => artAndSidesSet.has(n));
+    }
 
     updateRoadCountLabel(); renderRoads(); updateRoadList();
     document.getElementById('loading').style.display = 'none';
