@@ -170,6 +170,12 @@
     #arterial-list { max-height: 200px; overflow-y: auto; border: 1px solid #2a3050; border-radius: 6px; padding: 4px; margin-top: 4px; }
     .arterial-item { padding: 5px 8px; cursor: pointer; border-radius: 4px; font-size: 0.82rem; color: #c5cde8; margin-bottom: 2px; }
     .arterial-item:hover { background: #2a3050; color: #fff; }
+    #art-sides-select-panel { display: none; margin-top: 6px; }
+    #ass-list { max-height: 200px; overflow-y: auto; border: 1px solid #2a3050; border-radius: 6px; padding: 4px; margin-top: 4px; }
+    .ass-item { padding: 5px 8px; border-radius: 4px; font-size: 0.82rem; color: #c5cde8; margin-bottom: 2px; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+    .ass-item:hover { background: #2a3050; }
+    .ass-item.checked { background: #1a3a2a; color: #4caf50; }
+    #art-sides-select-status { display: none; font-size: 0.75rem; color: #4caf50; padding: 4px 0 2px 2px; }
     #arterial-sides-status {
       display: none;
       font-size: 0.75rem;
@@ -333,8 +339,8 @@
           <div id="feedback"></div>
           <div class="btn-row">
             <button class="btn btn-primary"   id="submit-btn">Submit</button>
-            <button class="btn btn-secondary" id="skip-btn">Skip</button>
-            <button class="btn btn-secondary" id="see-name-btn" style="display:none">See Name</button>
+            <button class="btn btn-secondary" id="skip-btn" style="display:none">Skip</button>
+            <button class="btn btn-secondary" id="see-name-btn">See Name</button>
           </div>
           <div id="hint-text">Press Enter to submit &bull; Esc to skip</div>
         </div>
@@ -345,6 +351,8 @@
             <button class="btn btn-secondary" style="margin-top:6px;width:100%" id="learn-arterial-btn">🛣️ Learn an Arterial's Side Streets</button>
             <button class="btn btn-secondary" style="margin-top:6px;width:100%" id="learn-pick-btn">🖱️ Pick a Spot</button>
             <button class="btn btn-secondary" style="margin-top:6px;width:100%" id="learn-random-btn">🎲 Random Spot</button>
+            <button class="btn btn-secondary" style="margin-top:6px;width:100%" id="learn-select-area-btn">◻ Select Area</button>
+            <div style="font-size:0.72rem;color:#5a6380;margin-top:5px;text-align:center;">Hold <strong style="color:#7a84a0">Shift</strong> while dragging to draw your selection box</div>
           </div>
           <div id="arterial-picker">
             <div style="font-size:0.8rem;color:#aab0c4;margin-bottom:6px;">Choose a main road to quiz its side streets:</div>
@@ -378,11 +386,21 @@
           <button class="btn btn-arterial" id="arterial-btn">&#9654; Arterials Only</button>
         </div>
         <div id="arterial-status"></div>
-        <div class="opt-row" id="opt-row-arterial-sides" style="margin-top:7px;">
-          <button class="btn btn-arterial" id="arterial-sides-btn">&#9654; Arterials + Side Streets</button>
+        <div class="opt-row" id="opt-row-art-sides-select" style="margin-top:7px;">
+          <button class="btn btn-arterial" id="art-sides-select-btn">&#9654; Select Arterials + Sides</button>
         </div>
-        <div id="arterial-sides-status"></div>
-        <div class="opt-row" style="margin-top:7px;">
+        <div id="art-sides-select-panel">
+          <input id="ass-search" type="text" placeholder="Search arterials…" autocomplete="off" spellcheck="false"
+            style="width:100%;box-sizing:border-box;padding:5px 8px;border-radius:5px;border:1px solid #2a3050;background:#0d1117;color:#c5cde8;font-size:0.82rem;" />
+          <div id="ass-list"></div>
+          <div style="font-size:0.75rem;color:#5a6380;margin:6px 0 2px;"><span id="ass-count">0</span> arterial(s) selected</div>
+          <div class="btn-row" style="margin-top:6px;">
+            <button class="btn btn-secondary" style="font-size:0.78rem" id="ass-cancel-btn">Cancel</button>
+            <button class="btn btn-primary" id="ass-apply-btn">Apply</button>
+          </div>
+        </div>
+        <div id="art-sides-select-status"></div>
+        <div class="opt-row" id="opt-row-area" style="margin-top:7px;">
           <button class="btn btn-area"      id="area-btn">&#9635; Select Area</button>
           <button class="btn btn-secondary" id="clear-area-btn" style="display:none;">Clear Area</button>
         </div>
@@ -492,6 +510,9 @@ let artNameRoads  = [];      // shuffled arterial road names
 let artNameOffset = 0;
 let artNamePhase  = 'first-batch';
 
+// Select-arterials side-street filter state (Name That Road review mode)
+let artSidesSelected = null; // null = inactive, Set<string> = chosen arterials
+
 const STYLE_DEFAULT  = { color: '#5577aa', weight: 2.5, opacity: 0.6 };
 const STYLE_ACTIVE   = { color: '#e05252', weight: 6,   opacity: 1   };
 const STYLE_CORRECT  = { color: '#4caf50', weight: 6,   opacity: 1   };
@@ -505,7 +526,25 @@ const OVERPASS_ENDPOINTS = [
   'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
 ];
 
+const CACHE_KEY     = 'bi_roads_v1';
+const CACHE_MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
+
 async function fetchRoads() {
+  const msgEl = document.getElementById('loading-msg');
+  const subEl = document.getElementById('loading-sub');
+
+  // Serve from cache if fresh
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (raw) {
+      const { ts, data } = JSON.parse(raw);
+      if (Date.now() - ts < CACHE_MAX_AGE) {
+        subEl.textContent = 'Using cached map data…';
+        return data;
+      }
+    }
+  } catch (_) {}
+
   const query = `
 [out:json][timeout:90];
 area["name"="Bainbridge Island"]["admin_level"="8"]->.bi;
@@ -517,9 +556,6 @@ area["name"="Bainbridge Island"]["admin_level"="8"]->.bi;
 out body;
 >;
 out skel qt;`.trim();
-
-  const msgEl = document.getElementById('loading-msg');
-  const subEl = document.getElementById('loading-sub');
 
   for (let attempt = 0; attempt < OVERPASS_ENDPOINTS.length; attempt++) {
     const endpoint = OVERPASS_ENDPOINTS[attempt];
@@ -533,11 +569,14 @@ out skel qt;`.trim();
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: query,
-        signal: AbortSignal.timeout(100_000),
+        signal: AbortSignal.timeout(60_000),
       });
       if (resp.status === 429 || resp.status === 504) continue;
       if (!resp.ok) throw new Error(`HTTP ${resp.status} from Overpass API`);
-      return resp.json();
+      const data = await resp.json();
+      // Cache for next visit
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data })); } catch (_) {}
+      return data;
     } catch (e) {
       if (attempt === OVERPASS_ENDPOINTS.length - 1) throw e;
     }
@@ -671,13 +710,17 @@ function updateAreaStatus() {
   el.textContent = `Area filter: ${visible.length} road${visible.length !== 1 ? 's' : ''}` + suffix;
 }
 
+function clearArtSidesSelect() {
+  artSidesSelected = null;
+  const btn = document.getElementById('art-sides-select-btn');
+  btn.classList.remove('active'); btn.textContent = '▶ Select Arterials + Sides';
+  document.getElementById('art-sides-select-panel').style.display  = 'none';
+  document.getElementById('art-sides-select-status').style.display = 'none';
+}
+
 function toggleArterial() {
   arterialOnly = !arterialOnly;
-  if (arterialOnly && arterialAndSides) {
-    arterialAndSides = false;
-    const sb = document.getElementById('arterial-sides-btn'), ss = document.getElementById('arterial-sides-status');
-    sb.classList.remove('active'); sb.textContent = '▶ Arterials + Side Streets'; ss.style.display = 'none';
-  }
+  if (arterialOnly && artSidesSelected) clearArtSidesSelect();
   const btn = document.getElementById('arterial-btn'), status = document.getElementById('arterial-status');
   if (arterialOnly) {
     btn.classList.add('active'); btn.textContent = '▶ Arterials Only ✓';
@@ -696,6 +739,7 @@ function toggleArterialAndSides() {
     const ab = document.getElementById('arterial-btn'), as_ = document.getElementById('arterial-status');
     ab.classList.remove('active'); ab.textContent = '▶ Arterials Only'; as_.style.display = 'none';
   }
+  if (arterialAndSides && artSidesSelected) clearArtSidesSelect();
   const btn = document.getElementById('arterial-sides-btn'), status = document.getElementById('arterial-sides-status');
   if (arterialAndSides) {
     btn.classList.add('active'); btn.textContent = '▶ Arterials + Side Streets ✓';
@@ -772,11 +816,13 @@ function setMode(mode) {
   document.getElementById('mode-learn-btn').classList.toggle('active', isLearnGW || isSpot || isArt || isArtName);
   document.getElementById('map').classList.toggle('find-mode', mode === 'find');
   // Hide most options in Learn gateway; keep Select Area visible
-  const learnOnlyRows = ['opt-row-zoom-reset', 'opt-row-arterial', 'opt-row-arterial-sides'];
+  const learnOnlyRows = ['opt-row-zoom-reset', 'opt-row-arterial', 'opt-row-art-sides-select', 'opt-row-area'];
   for (const id of learnOnlyRows) document.getElementById(id).style.display = isLearnGW ? 'none' : '';
   // Status divs are only shown when filters are active — hide in Learn, restore conditionally
-  document.getElementById('arterial-status').style.display       = (!isLearnGW && arterialOnly)      ? 'block' : 'none';
-  document.getElementById('arterial-sides-status').style.display = (!isLearnGW && arterialAndSides)  ? 'block' : 'none';
+  document.getElementById('arterial-status').style.display            = (!isLearnGW && arterialOnly)     ? 'block' : 'none';
+  document.getElementById('art-sides-select-status').style.display    = (!isLearnGW && artSidesSelected) ? 'block' : 'none';
+  // Always collapse the picker panel on mode change
+  document.getElementById('art-sides-select-panel').style.display     = 'none';
 
   document.getElementById('zoom-btn').style.display       = mode === 'find' ? 'none' : '';
   document.getElementById('skip-btn').style.display       = 'none';
@@ -802,6 +848,19 @@ function activeNames() {
   let names = activeRoadNames || roadNames;
   if (arterialOnly)      { const s = new Set(arterialRoadNames);    names = names.filter(n => s.has(n)); }
   if (arterialAndSides)  { const s = new Set(arterialAndSideNames); names = names.filter(n => s.has(n)); }
+  if (artSidesSelected) {
+    const arterialSet = new Set(arterialRoadNames);
+    const base        = new Set(names);
+    const sides       = new Set();
+    for (const art of artSidesSelected) {
+      for (const nodeId of (roadNodeIds[art] || new Set())) {
+        for (const rn of (nodeToRoads[nodeId] || new Set())) {
+          if (rn !== art && base.has(rn) && !arterialSet.has(rn)) sides.add(rn);
+        }
+      }
+    }
+    names = names.filter(n => sides.has(n));
+  }
   return names;
 }
 
@@ -1582,13 +1641,106 @@ function updateRoadList() {
 }
 
 
+// ── Select Arterials + Sides picker ──────────────────────────────────────────
+let _assChecked = new Set(); // tracks checkbox state while picker is open
+
+function openArtSidesSelectPanel() {
+  // If filter is already active, clicking the button toggles it off
+  if (artSidesSelected) { clearArtSidesSelect(); startQuiz(); return; }
+  // Deactivate the arterials-only filter if on
+  if (arterialOnly) toggleArterial();
+
+  _assChecked = new Set();
+  document.getElementById('art-sides-select-panel').style.display = 'block';
+  const list   = document.getElementById('ass-list');
+  const search = document.getElementById('ass-search');
+  const count  = document.getElementById('ass-count');
+  const apply  = document.getElementById('ass-apply-btn');
+  const arterials = getArterials();
+  let allCb = null;
+
+  function updateCount() {
+    count.textContent = _assChecked.size;
+    apply.disabled    = _assChecked.size === 0;
+    if (allCb) allCb.checked = (_assChecked.size === arterials.length);
+  }
+
+  function makeAllRow() {
+    const div = document.createElement('div');
+    div.style.cssText = 'padding:6px 8px;border-radius:4px;border-bottom:1px solid #2a3050;margin-bottom:4px;display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.82rem;font-weight:600;color:#e0e4f0;';
+    allCb = document.createElement('input');
+    allCb.type = 'checkbox';
+    allCb.checked = (_assChecked.size === arterials.length);
+    allCb.addEventListener('change', () => {
+      if (allCb.checked) { for (const a of arterials) _assChecked.add(a); }
+      else _assChecked.clear();
+      renderList(search.value);
+      updateCount();
+    });
+    const lbl = document.createElement('span');
+    lbl.textContent = 'All Arterials';
+    lbl.addEventListener('click', () => { allCb.checked = !allCb.checked; allCb.dispatchEvent(new Event('change')); });
+    div.appendChild(allCb); div.appendChild(lbl);
+    return div;
+  }
+
+  function renderList(filter) {
+    list.innerHTML = '';
+    list.appendChild(makeAllRow());
+    const q = filter.toLowerCase();
+    for (const name of arterials) {
+      if (q && !name.toLowerCase().includes(q)) continue;
+      const div = document.createElement('div');
+      const cb  = document.createElement('input');
+      cb.type = 'checkbox'; cb.checked = _assChecked.has(name);
+      cb.addEventListener('change', () => {
+        if (cb.checked) _assChecked.add(name); else _assChecked.delete(name);
+        div.className = 'ass-item' + (_assChecked.has(name) ? ' checked' : '');
+        updateCount();
+      });
+      const lbl = document.createElement('span');
+      lbl.textContent = name;
+      lbl.addEventListener('click', () => { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); });
+      div.className = 'ass-item' + (_assChecked.has(name) ? ' checked' : '');
+      div.appendChild(cb); div.appendChild(lbl);
+      list.appendChild(div);
+    }
+  }
+
+  search.value = '';
+  search.oninput = () => renderList(search.value);
+  updateCount();
+  renderList('');
+  search.focus();
+}
+
+function applyArtSidesSelect() {
+  if (_assChecked.size === 0) return;
+  artSidesSelected = new Set(_assChecked);
+  document.getElementById('art-sides-select-panel').style.display = 'none';
+  const btn    = document.getElementById('art-sides-select-btn');
+  const status = document.getElementById('art-sides-select-status');
+  btn.classList.add('active');
+  btn.textContent = '▶ Select Arterials + Sides ✓';
+  const n = activeNames().length;
+  status.style.display = 'block';
+  status.textContent   = `${n} side street${n !== 1 ? 's' : ''} from ${artSidesSelected.size} arterial${artSidesSelected.size !== 1 ? 's' : ''}`;
+  updateRoadCountLabel(); startQuiz();
+}
+// ── End Select Arterials + Sides picker ──────────────────────────────────────
+
 document.getElementById('submit-btn').addEventListener('click', checkAnswer);
 document.getElementById('skip-btn').addEventListener('click',   skipRoad);
 document.getElementById('zoom-btn').addEventListener('click',   () => { if (currentRoad) zoomToRoad(currentRoad); });
 document.getElementById('reset-btn').addEventListener('click',  () => { if (confirm('Reset the quiz and start over?')) startQuiz(); });
-document.getElementById('arterial-btn').addEventListener('click',       toggleArterial);
-document.getElementById('arterial-sides-btn').addEventListener('click', toggleArterialAndSides);
-document.getElementById('area-btn').addEventListener('click',       enterSelectionMode);
+document.getElementById('arterial-btn').addEventListener('click',           toggleArterial);
+document.getElementById('art-sides-select-btn').addEventListener('click',   openArtSidesSelectPanel);
+document.getElementById('ass-apply-btn').addEventListener('click',          applyArtSidesSelect);
+document.getElementById('ass-cancel-btn').addEventListener('click', () => {
+  document.getElementById('art-sides-select-panel').style.display = 'none';
+});
+document.getElementById('area-btn').addEventListener('click',             enterSelectionMode);
+document.getElementById('learn-select-area-btn').addEventListener('click', enterSelectionMode);
 document.getElementById('clear-area-btn').addEventListener('click', clearAreaSelection);
 document.getElementById('answer-input').addEventListener('keydown', e => {
   if (e.key === 'Enter')  checkAnswer();
