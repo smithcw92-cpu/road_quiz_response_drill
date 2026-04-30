@@ -342,7 +342,7 @@
             <button class="btn btn-secondary" id="skip-btn" style="display:none">Skip</button>
             <button class="btn btn-secondary" id="see-name-btn">See Name</button>
           </div>
-          <div id="hint-text">Press Enter to submit &bull; Esc to skip</div>
+          <div id="hint-text">Press Enter to submit &bull; Shift to reveal</div>
         </div>
         <div id="learn-submenu">
           <div id="learn-submenu-btns">
@@ -829,7 +829,7 @@ function setMode(mode) {
   document.getElementById('see-name-btn').style.display   = (mode === 'name' || isSpot || isArt || isArtName) ? '' : 'none';
   document.getElementById('progress-wrap').style.display  = (isSpot || isArt || isArtName) ? 'none' : '';
   document.getElementById('lbl-mastered').textContent     = 'Mastered';
-  document.getElementById('hint-text').textContent        = 'Press Enter to submit \u2022 Esc to skip';
+  document.getElementById('hint-text').textContent        = 'Press Enter to submit \u2022 Shift to reveal';
   document.getElementById('spot-phase-info').style.display = (isSpot || isArt || isArtName) ? '' : 'none';
   document.getElementById('completion').style.display      = 'none';
 
@@ -1549,7 +1549,7 @@ function checkAnswer() {
     updateScore(); updateRoadList(); pendingTimer = setTimeout(nextQuestion, 1600);
   } else {
     score.streak = 0; input.className = 'state-bad'; fb.className = 'fb-bad';
-    fb.textContent = 'Not quite — try again, or press Skip to reveal.'; updateScore();
+    fb.textContent = 'Not quite — try again, or press Shift or See Name to reveal.'; updateScore();
   }
 }
 
@@ -1745,6 +1745,23 @@ document.getElementById('clear-area-btn').addEventListener('click', clearAreaSel
 document.getElementById('answer-input').addEventListener('keydown', e => {
   if (e.key === 'Enter')  checkAnswer();
   if (e.key === 'Escape') seeRoadName();
+});
+// Enter confirms Review/Next batch when a completion panel is showing
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const completion = document.getElementById('completion');
+  if (!completion || !completion.children.length) return;
+  const primary = completion.querySelector('.btn-primary');
+  if (primary) { e.preventDefault(); primary.click(); }
+});
+// Shift-alone reveals the road name without conflicting with Shift+letter for capitals
+let _shiftUsedForTyping = false;
+document.getElementById('answer-input').addEventListener('keydown', e => {
+  if (e.key !== 'Shift') _shiftUsedForTyping = true;
+});
+document.getElementById('answer-input').addEventListener('keyup', e => {
+  if (e.key === 'Shift' && !_shiftUsedForTyping) seeRoadName();
+  if (e.key === 'Shift') _shiftUsedForTyping = false;
 });
 document.getElementById('mode-name-btn').addEventListener('click',  () => setMode('name'));
 document.getElementById('mode-find-btn').addEventListener('click',  () => setMode('find'));
