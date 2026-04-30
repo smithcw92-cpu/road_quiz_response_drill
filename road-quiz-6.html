@@ -1743,7 +1743,12 @@ document.getElementById('area-btn').addEventListener('click',             enterS
 document.getElementById('learn-select-area-btn').addEventListener('click', enterSelectionMode);
 document.getElementById('clear-area-btn').addEventListener('click', clearAreaSelection);
 document.getElementById('answer-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter')  checkAnswer();
+  if (e.key === 'Enter') {
+    const completion = document.getElementById('completion');
+    const primary = completion && completion.querySelector('.btn-primary');
+    if (primary) { e.preventDefault(); primary.click(); return; }
+    checkAnswer();
+  }
   if (e.key === 'Escape') seeRoadName();
 });
 // Enter confirms Review/Next batch when a completion panel is showing
