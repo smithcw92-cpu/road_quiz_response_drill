@@ -1742,31 +1742,28 @@ document.getElementById('ass-cancel-btn').addEventListener('click', () => {
 document.getElementById('area-btn').addEventListener('click',             enterSelectionMode);
 document.getElementById('learn-select-area-btn').addEventListener('click', enterSelectionMode);
 document.getElementById('clear-area-btn').addEventListener('click', clearAreaSelection);
+function completionPrimary() {
+  const el = document.getElementById('completion');
+  if (!el || el.style.display === 'none') return null;
+  return el.querySelector('.btn-primary');
+}
 document.getElementById('answer-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') {
-    const completion = document.getElementById('completion');
-    const primary = completion && completion.querySelector('.btn-primary');
+    const primary = completionPrimary();
     if (primary) { e.preventDefault(); primary.click(); return; }
     checkAnswer();
   }
   if (e.key === 'Escape') seeRoadName();
 });
-// Enter confirms Review/Next batch when a completion panel is showing
+// Enter confirms Review/Next batch when a completion panel is visible
 document.addEventListener('keydown', e => {
   if (e.key !== 'Enter') return;
-  const completion = document.getElementById('completion');
-  if (!completion || !completion.children.length) return;
-  const primary = completion.querySelector('.btn-primary');
+  const primary = completionPrimary();
   if (primary) { e.preventDefault(); primary.click(); }
 });
-// Shift-alone reveals the road name without conflicting with Shift+letter for capitals
-let _shiftUsedForTyping = false;
+// Shift reveals the road name
 document.getElementById('answer-input').addEventListener('keydown', e => {
-  if (e.key !== 'Shift') _shiftUsedForTyping = true;
-});
-document.getElementById('answer-input').addEventListener('keyup', e => {
-  if (e.key === 'Shift' && !_shiftUsedForTyping) seeRoadName();
-  if (e.key === 'Shift') _shiftUsedForTyping = false;
+  if (e.key === 'Shift') seeRoadName();
 });
 document.getElementById('mode-name-btn').addEventListener('click',  () => setMode('name'));
 document.getElementById('mode-find-btn').addEventListener('click',  () => setMode('find'));
