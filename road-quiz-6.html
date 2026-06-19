@@ -283,6 +283,36 @@
       #sidebar { width: 100%; border-left: none; border-top: 2px solid #2a3050; max-height: 45vh; }
       #map { min-height: 200px; }
     }
+    #known-toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #142014;
+      color: #66bb6a;
+      border: 1px solid #3a7a4a;
+      border-radius: 7px;
+      padding: 8px 16px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+      z-index: 3000;
+      white-space: nowrap;
+    }
+    #known-status {
+      display: none;
+      font-size: 0.75rem;
+      color: #66bb6a;
+      background: #142014;
+      border: 1px solid #3a6a3a;
+      border-radius: 5px;
+      padding: 5px 8px;
+      margin-top: 7px;
+    }
+    .btn-known { background: #2a3050; color: #9aa0b8; }
+    .btn-known.active { background: #1a3a2a; color: #66bb6a; border: 1px solid #3a7a4a; }
   </style>
 </head>
 <body>
@@ -342,7 +372,7 @@
             <button class="btn btn-secondary" id="skip-btn" style="display:none">Skip</button>
             <button class="btn btn-secondary" id="see-name-btn">See Name</button>
           </div>
-          <div id="hint-text">Press Enter to submit &bull; Shift to reveal</div>
+          <div id="hint-text">Press Enter to submit &bull; Shift to reveal &bull; &#8984; mark Known</div>
         </div>
         <div id="learn-submenu">
           <div id="learn-submenu-btns">
@@ -406,6 +436,10 @@
         </div>
         <div id="area-drawing-hint">Click &amp; drag on the map to draw a box &bull; Esc to cancel</div>
         <div id="area-status"></div>
+        <div class="opt-row" id="opt-row-known" style="margin-top:7px;">
+          <button class="btn btn-known" id="known-btn">&#9733; Quiz Known Roads <span id="known-count"></span></button>
+        </div>
+        <div id="known-status"></div>
       </div>
       <div class="panel">
         <div class="panel-title">All Roads <span id="road-count-lbl"></span></div>
@@ -414,6 +448,7 @@
     </div>
   </div>
 </div>
+<div id="known-toast"></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const map = L.map('map', { center: [47.640, -122.520], zoom: 12, zoomControl: true });
@@ -430,6 +465,11 @@ let currentRoad   = null;
 let awaitingNext  = false;
 const score = { correct: 0, total: 0, streak: 0 };
 const mastered = new Set();
+
+const KNOWN_ROADS_KEY = 'bainbridge-known-roads';
+const knownRoads = new Set(JSON.parse(localStorage.getItem(KNOWN_ROADS_KEY) || '[]'));
+let knownRoadsOnly = false;
+let _knownToastTimer = null;
 
 let activeRoadNames  = null;
 let activeAreaBounds = null;
@@ -816,7 +856,7 @@ function setMode(mode) {
   document.getElementById('mode-learn-btn').classList.toggle('active', isLearnGW || isSpot || isArt || isArtName);
   document.getElementById('map').classList.toggle('find-mode', mode === 'find');
   // Hide most options in Learn gateway; keep Select Area visible
-  const learnOnlyRows = ['opt-row-zoom-reset', 'opt-row-arterial', 'opt-row-art-sides-select', 'opt-row-area'];
+  const learnOnlyRows = ['opt-row-zoom-reset', 'opt-row-arterial', 'opt-row-art-sides-select', 'opt-row-area', 'opt-row-known'];
   for (const id of learnOnlyRows) document.getElementById(id).style.display = isLearnGW ? 'none' : '';
   // Status divs are only shown when filters are active — hide in Learn, restore conditionally
   document.getElementById('arterial-status').style.display            = (!isLearnGW && arterialOnly)     ? 'block' : 'none';
@@ -829,7 +869,7 @@ function setMode(mode) {
   document.getElementById('see-name-btn').style.display   = (mode === 'name' || isSpot || isArt || isArtName) ? '' : 'none';
   document.getElementById('progress-wrap').style.display  = (isSpot || isArt || isArtName) ? 'none' : '';
   document.getElementById('lbl-mastered').textContent     = 'Mastered';
-  document.getElementById('hint-text').textContent        = 'Press Enter to submit \u2022 Shift to reveal';
+  document.getElementById('hint-text').textContent        = 'Press Enter to submit \u2022 Shift to reveal \u2022 \u2318 mark Known';
   document.getElementById('spot-phase-info').style.display = (isSpot || isArt || isArtName) ? '' : 'none';
   document.getElementById('completion').style.display      = 'none';
 
@@ -846,6 +886,7 @@ function shuffle(arr) {
 
 function activeNames() {
   let names = activeRoadNames || roadNames;
+  if (knownRoadsOnly)    { names = names.filter(n => knownRoads.has(n)); }
   if (arterialOnly)      { const s = new Set(arterialRoadNames);    names = names.filter(n => s.has(n)); }
   if (arterialAndSides)  { const s = new Set(arterialAndSideNames); names = names.filter(n => s.has(n)); }
   if (artSidesSelected) {
@@ -1747,6 +1788,47 @@ function completionPrimary() {
   if (!el || el.style.display === 'none') return null;
   return el.querySelector('.btn-primary');
 }
+
+function saveKnownRoads() {
+  try { localStorage.setItem(KNOWN_ROADS_KEY, JSON.stringify([...knownRoads])); } catch (_) {}
+}
+
+function showKnownToast(msg) {
+  const el = document.getElementById('known-toast');
+  el.textContent = msg;
+  el.style.opacity = '1';
+  if (_knownToastTimer) clearTimeout(_knownToastTimer);
+  _knownToastTimer = setTimeout(() => { el.style.opacity = '0'; }, 2200);
+}
+
+function updateKnownBtn() {
+  const btn   = document.getElementById('known-btn');
+  const count = knownRoads.size;
+  btn.className = 'btn btn-known' + (knownRoadsOnly ? ' active' : '');
+  document.getElementById('known-count').textContent = count > 0 ? `(${count})` : '';
+  const st = document.getElementById('known-status');
+  if (knownRoadsOnly) {
+    const active = (activeRoadNames || roadNames).filter(n => knownRoads.has(n)).length;
+    st.style.display = 'block';
+    st.textContent   = `Quizzing ${active} known road${active !== 1 ? 's' : ''}`;
+  } else {
+    st.style.display = 'none';
+  }
+}
+
+function toggleKnownRoads() {
+  knownRoadsOnly = !knownRoadsOnly;
+  if (knownRoadsOnly && knownRoads.size === 0) {
+    knownRoadsOnly = false;
+    updateKnownBtn();
+    showKnownToast('No Known Roads yet — press ⌘ while viewing a road to add it');
+    return;
+  }
+  updateKnownBtn();
+  if (quizMode !== 'name') setMode('name');
+  else startQuiz();
+}
+
 document.getElementById('answer-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') {
     const primary = completionPrimary();
@@ -1754,6 +1836,13 @@ document.getElementById('answer-input').addEventListener('keydown', e => {
     checkAnswer();
   }
   if (e.key === 'Escape') seeRoadName();
+  if (e.key === 'Meta' && !e.shiftKey && !e.altKey && !e.ctrlKey && currentRoad && quizMode !== 'find') {
+    const isNew = !knownRoads.has(currentRoad);
+    knownRoads.add(currentRoad);
+    saveKnownRoads();
+    updateKnownBtn();
+    showKnownToast(isNew ? `★ Added to Known Roads: ${currentRoad}` : `★ Already in Known Roads`);
+  }
 });
 // Enter confirms Review/Next batch when a completion panel is visible
 document.addEventListener('keydown', e => {
@@ -1785,6 +1874,7 @@ document.getElementById('deep-branch-btn').addEventListener('click', () => {
   btn.style.borderColor  = deepBranch ? '#3a7a4a' : '#2a3050';
 });
 document.getElementById('see-name-btn').addEventListener('click',   seeRoadName);
+document.getElementById('known-btn').addEventListener('click', toggleKnownRoads);
 document.getElementById('find-next-btn').addEventListener('click', () => {
   if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
   nextQuestion();
@@ -1821,7 +1911,7 @@ async function init() {
       arterialAndSideNames = roadNames.filter(n => artAndSidesSet.has(n));
     }
 
-    updateRoadCountLabel(); renderRoads(); updateRoadList();
+    updateRoadCountLabel(); renderRoads(); updateRoadList(); updateKnownBtn();
     document.getElementById('loading').style.display = 'none';
     startQuiz();
   } catch (err) {
