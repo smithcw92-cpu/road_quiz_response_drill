@@ -570,8 +570,9 @@ const STATION_ZONES = [
     bounds: { south: 47.565, north: 47.617, west: -122.610, east: -122.420 },
   },
 ];
-// Tighter than ARTERIAL_TYPES on purpose — secondary is a separate opt-in tier here.
-const STATION_ARTERIAL_HWY_TYPES = new Set(['motorway', 'trunk', 'primary']);
+// "Arterials" tier = motorway/trunk/primary/secondary (+ named overrides).
+// "+ Secondary" tier = those roads PLUS every road that intersects one of them.
+const STATION_ARTERIAL_HWY_TYPES = new Set(['motorway', 'trunk', 'primary', 'secondary']);
 let stationZone = null;              // element of STATION_ZONES, or null until picked
 let stationTier = 'arterial';        // 'arterial' | 'arterial_secondary'
 let stationSub  = 'quiz';            // 'quiz' | 'cycle'
@@ -2078,19 +2079,25 @@ async function init() {
       arterialAndSideNames = roadNames.filter(n => artAndSidesSet.has(n));
     }
 
-    // Station Shift Review road-class tiers (tighter than the general Arterials filter above)
+    // Station Shift Review road-class tiers
     stationArterialNames = roadNames.filter(name =>
       !ARTERIAL_EXCLUDE.has(name) && (
         NAMED_ARTERIALS.has(name) ||
         (roadHighwayTypes[name] && [...roadHighwayTypes[name]].some(t => STATION_ARTERIAL_HWY_TYPES.has(t)))
       )
     );
-    stationArterialSecondaryNames = roadNames.filter(name =>
-      !ARTERIAL_EXCLUDE.has(name) && (
-        NAMED_ARTERIALS.has(name) ||
-        (roadHighwayTypes[name] && [...roadHighwayTypes[name]].some(t => STATION_ARTERIAL_HWY_TYPES.has(t) || t === 'secondary'))
-      )
-    );
+    // "+ Secondary" = arterials plus every road that shares a node (intersects) with one
+    {
+      const plusSet = new Set(stationArterialNames);
+      for (const artRoad of stationArterialNames) {
+        for (const nodeId of (roadNodeIds[artRoad] || new Set())) {
+          for (const rn of (nodeToRoads[nodeId] || new Set())) {
+            plusSet.add(rn);
+          }
+        }
+      }
+      stationArterialSecondaryNames = roadNames.filter(n => plusSet.has(n));
+    }
 
     updateRoadCountLabel(); renderRoads(); updateRoadList(); updateKnownBtn();
     document.getElementById('loading').style.display = 'none';
