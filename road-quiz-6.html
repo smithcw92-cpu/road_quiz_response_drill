@@ -170,6 +170,15 @@
     #arterial-list { max-height: 200px; overflow-y: auto; border: 1px solid #2a3050; border-radius: 6px; padding: 4px; margin-top: 4px; }
     .arterial-item { padding: 5px 8px; cursor: pointer; border-radius: 4px; font-size: 0.82rem; color: #c5cde8; margin-bottom: 2px; }
     .arterial-item:hover { background: #2a3050; color: #fff; }
+    #station-picker { display: none; }
+    .station-item {
+      padding: 8px 10px; border: 1px solid #2a3050; border-radius: 6px;
+      font-size: 0.82rem; color: #c5cde8; cursor: pointer; transition: all 0.15s; margin-bottom: 6px;
+    }
+    .station-item:hover  { background: #2a3050; }
+    .station-item.active { background: #1a2a3a; color: #4a90e2; border-color: #3a5a8a; }
+    .station-item .station-item-desc { font-size: 0.7rem; color: #5a6380; margin-top: 2px; }
+    .station-item.active .station-item-desc { color: #7a90c0; }
     #art-sides-select-panel { display: none; margin-top: 6px; }
     #ass-list { max-height: 200px; overflow-y: auto; border: 1px solid #2a3050; border-radius: 6px; padding: 4px; margin-top: 4px; }
     .ass-item { padding: 5px 8px; border-radius: 4px; font-size: 0.82rem; color: #c5cde8; margin-bottom: 2px; display: flex; align-items: center; gap: 8px; cursor: pointer; }
@@ -377,7 +386,8 @@
         <div id="learn-submenu">
           <div id="learn-submenu-btns">
             <div id="learn-submenu-intro">Pick a mode — you'll be quizzed on 5 roads at a time, adding 5 more as you nail each set.</div>
-            <button class="btn btn-secondary" style="margin-top:8px;width:100%" id="learn-artname-btn">🗺️ Learn Arterials</button>
+            <button class="btn btn-secondary" style="margin-top:8px;width:100%" id="learn-station-btn">🚒 Station Shift Review</button>
+            <button class="btn btn-secondary" style="margin-top:6px;width:100%" id="learn-artname-btn">🗺️ Learn Arterials</button>
             <button class="btn btn-secondary" style="margin-top:6px;width:100%" id="learn-arterial-btn">🛣️ Learn an Arterial's Side Streets</button>
             <button class="btn btn-secondary" style="margin-top:6px;width:100%" id="learn-pick-btn">🖱️ Pick a Spot</button>
             <button class="btn btn-secondary" style="margin-top:6px;width:100%" id="learn-random-btn">🎲 Random Spot</button>
@@ -393,6 +403,22 @@
             <button class="btn btn-secondary" style="margin-top:8px;width:100%;font-size:0.78rem" id="arterial-back-btn">← Back</button>
           </div>
           <div id="learn-pick-hint">Click anywhere on the map to place your anchor…<br><span style="color:#5a6380;font-size:0.75rem;">Click another mode button to cancel.</span></div>
+          <div id="station-picker">
+            <div style="font-size:0.8rem;color:#aab0c4;margin-bottom:8px;">Pick your station's primary service area:</div>
+            <div id="station-list"></div>
+            <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#5a6380;margin:10px 0 6px;">Road classes</div>
+            <div class="mode-toggle-row" style="margin-bottom:0;">
+              <button class="btn btn-mode active" id="station-tier-arterial-btn">Arterials</button>
+              <button class="btn btn-mode"        id="station-tier-arterial-sec-btn">Arterials + Secondary</button>
+            </div>
+            <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#5a6380;margin:10px 0 6px;">Practice style</div>
+            <div class="mode-toggle-row" style="margin-bottom:0;">
+              <button class="btn btn-mode active" id="station-mode-quiz-btn">📝 Quiz</button>
+              <button class="btn btn-mode"        id="station-mode-cycle-btn">🔁 Continuous Cycle</button>
+            </div>
+            <button class="btn btn-primary" style="margin-top:12px;width:100%" id="station-start-btn" disabled>Start</button>
+            <button class="btn btn-secondary" style="margin-top:8px;width:100%;font-size:0.78rem" id="station-back-btn">← Back</button>
+          </div>
         </div>
         <div id="find-mode-ui" style="display:none">
           <div id="find-question">Click on the map where you think this road is:</div>
@@ -523,6 +549,34 @@ let roadHighwayTypes     = {};
 let arterialOnly         = false;
 let arterialAndSides     = false;
 let learnRevealed     = false;
+
+// Station Shift Review — rough lat/lon bands for each station's primary service area.
+// These are approximate rectangles (not traced boundaries) built from the cross-streets
+// the crew uses to describe coverage; nudge the bounds below if a road lands on the wrong side.
+const STATION_ZONES = [
+  {
+    id: 'station23', label: 'Station 23 — North Island',
+    desc: 'North of/including Koura, Valley & Tolo Rd',
+    bounds: { south: 47.652, north: 47.740, west: -122.610, east: -122.420 },
+  },
+  {
+    id: 'station21', label: 'Station 21 — Central Island',
+    desc: 'Between Stations 23 and 22',
+    bounds: { south: 47.617, north: 47.652, west: -122.610, east: -122.420 },
+  },
+  {
+    id: 'station22', label: 'Station 22 — South Island',
+    desc: 'Vincent, Bucklin Hill, Eagle Harbor & south',
+    bounds: { south: 47.565, north: 47.617, west: -122.610, east: -122.420 },
+  },
+];
+// Tighter than ARTERIAL_TYPES on purpose — secondary is a separate opt-in tier here.
+const STATION_ARTERIAL_HWY_TYPES = new Set(['motorway', 'trunk', 'primary']);
+let stationZone = null;              // element of STATION_ZONES, or null until picked
+let stationTier = 'arterial';        // 'arterial' | 'arterial_secondary'
+let stationSub  = 'quiz';            // 'quiz' | 'cycle'
+let stationArterialNames          = [];
+let stationArterialSecondaryNames = [];
 
 // Spot (5+5+5) batch-mode state
 const SPOT_BATCH_SZ  = 5;
@@ -846,18 +900,26 @@ function setMode(mode) {
   const isSpot    = mode === 'spot';
   const isArt     = mode === 'arterial';
   const isArtName = mode === 'artname';
+  const isStation = mode === 'station';
   const isLearnGW = mode === 'learn'; // gateway sub-menu, no active quiz
 
-  document.getElementById('name-mode-ui').style.display   = (mode === 'name' || isSpot || isArt || isArtName) ? '' : 'none';
+  document.getElementById('name-mode-ui').style.display   = (mode === 'name' || isSpot || isArt || isArtName || isStation) ? '' : 'none';
   document.getElementById('find-mode-ui').style.display   = mode === 'find'  ? '' : 'none';
   document.getElementById('learn-submenu').style.display  = isLearnGW        ? 'block' : 'none';
   document.getElementById('mode-name-btn').classList.toggle('active', mode === 'name');
   document.getElementById('mode-find-btn').classList.toggle('active', mode === 'find');
-  document.getElementById('mode-learn-btn').classList.toggle('active', isLearnGW || isSpot || isArt || isArtName);
+  document.getElementById('mode-learn-btn').classList.toggle('active', isLearnGW || isSpot || isArt || isArtName || isStation);
   document.getElementById('map').classList.toggle('find-mode', mode === 'find');
   // Hide most options in Learn gateway; keep Select Area visible
   const learnOnlyRows = ['opt-row-zoom-reset', 'opt-row-arterial', 'opt-row-art-sides-select', 'opt-row-area', 'opt-row-known'];
   for (const id of learnOnlyRows) document.getElementById(id).style.display = isLearnGW ? 'none' : '';
+  // Station mode has its own area + tier picker — the general-purpose filters below don't apply to it
+  if (isStation) {
+    document.getElementById('opt-row-arterial').style.display         = 'none';
+    document.getElementById('opt-row-art-sides-select').style.display = 'none';
+    document.getElementById('opt-row-area').style.display             = 'none';
+    document.getElementById('opt-row-known').style.display            = 'none';
+  }
   // Status divs are only shown when filters are active — hide in Learn, restore conditionally
   document.getElementById('arterial-status').style.display            = (!isLearnGW && arterialOnly)     ? 'block' : 'none';
   document.getElementById('art-sides-select-status').style.display    = (!isLearnGW && artSidesSelected) ? 'block' : 'none';
@@ -866,14 +928,15 @@ function setMode(mode) {
 
   document.getElementById('zoom-btn').style.display       = mode === 'find' ? 'none' : '';
   document.getElementById('skip-btn').style.display       = 'none';
-  document.getElementById('see-name-btn').style.display   = (mode === 'name' || isSpot || isArt || isArtName) ? '' : 'none';
+  document.getElementById('see-name-btn').style.display   = (mode === 'name' || isSpot || isArt || isArtName || isStation) ? '' : 'none';
   document.getElementById('progress-wrap').style.display  = (isSpot || isArt || isArtName) ? 'none' : '';
   document.getElementById('lbl-mastered').textContent     = 'Mastered';
   document.getElementById('hint-text').textContent        = 'Press Enter to submit \u2022 Shift to reveal \u2022 \u2318 mark Known';
-  document.getElementById('spot-phase-info').style.display = (isSpot || isArt || isArtName) ? '' : 'none';
+  document.getElementById('spot-phase-info').style.display = (isSpot || isArt || isArtName || isStation) ? '' : 'none';
   document.getElementById('completion').style.display      = 'none';
 
   if (isLearnGW) return; // show sub-menu only, quiz starts when user picks
+  if (isStation) updateStationPhaseInfo();
   startQuiz();
 }
 
@@ -884,7 +947,21 @@ function shuffle(arr) {
   return arr;
 }
 
+function stationTierNames() {
+  return stationTier === 'arterial_secondary' ? stationArterialSecondaryNames : stationArterialNames;
+}
+
+function stationActiveNames() {
+  if (!stationZone) return [];
+  const b = stationZone.bounds;
+  const bounds  = L.latLngBounds([b.south, b.west], [b.north, b.east]);
+  const inZone  = new Set(filterRoadsInBounds(bounds));
+  const tierSet = new Set(stationTierNames());
+  return roadNames.filter(n => inZone.has(n) && tierSet.has(n));
+}
+
 function activeNames() {
+  if (quizMode === 'station') return stationActiveNames();
   let names = activeRoadNames || roadNames;
   if (knownRoadsOnly)    { names = names.filter(n => knownRoads.has(n)); }
   if (arterialOnly)      { const s = new Set(arterialRoadNames);    names = names.filter(n => s.has(n)); }
@@ -1407,6 +1484,15 @@ function startQuiz() {
     updateArtNamePhaseInfo(); updateRoadList(); nextQuestion();
     return;
   }
+  if (quizMode === 'station') {
+    if (stationZone) {
+      const b = stationZone.bounds;
+      map.fitBounds(L.latLngBounds([b.south, b.west], [b.north, b.east]), { padding: [20, 20] });
+    }
+    quizQueue = shuffle([...activeNames()]);
+    updateStationPhaseInfo(); updateRoadList(); nextQuestion();
+    return;
+  }
   quizQueue = shuffle([...activeNames()]);
   updateSpotPhaseInfo(); updateRoadList(); nextQuestion();
 }
@@ -1432,6 +1518,9 @@ function nextNameQuestion() {
     const unmastered = artNameActiveSet().filter(n => !mastered.has(n));
     if (unmastered.length === 0) { showArtNameTransition(); return; }
     if (quizQueue.length === 0)  quizQueue = shuffle([...unmastered]);
+  } else if (quizMode === 'station' && stationSub === 'cycle') {
+    // Continuous cycle — refill from the full station+tier set forever, never "complete"
+    if (quizQueue.length === 0) quizQueue = shuffle([...activeNames()]);
   } else {
     if (quizQueue.length === 0) {
       const unmastered = activeNames().filter(n => !mastered.has(n));
@@ -1624,8 +1713,8 @@ function showCompletion() {
   const el = document.getElementById('completion');
   el.style.display = 'block';
   el.textContent = `All ${names.length} roads mastered! Final score: ${score.correct}/${score.total} (${pct}%). Hit Reset to go again.`;
-  if (quizMode === 'name') document.getElementById('question-text').textContent = 'Quiz complete — great work!';
-  else document.getElementById('find-road-name').textContent = 'Quiz complete!';
+  if (quizMode === 'find') document.getElementById('find-road-name').textContent = 'Quiz complete!';
+  else document.getElementById('question-text').textContent = 'Quiz complete — great work!';
   if (currentRoad) setRoadStyle(currentRoad, STYLE_DEFAULT);
 }
 
@@ -1770,6 +1859,84 @@ function applyArtSidesSelect() {
 }
 // ── End Select Arterials + Sides picker ──────────────────────────────────────
 
+// ── Station Shift Review ──────────────────────────────────────────────────────
+
+function updateStationPhaseInfo() {
+  const el = document.getElementById('spot-phase-info');
+  if (!el || quizMode !== 'station' || !stationZone) return;
+  const tierLabel = stationTier === 'arterial_secondary' ? 'Arterials + Secondary' : 'Arterials';
+  const subLabel  = stationSub === 'cycle' ? 'Continuous Cycle' : 'Quiz';
+  el.textContent   = `🚒 ${stationZone.label} — ${tierLabel} — ${subLabel}`;
+  el.style.display = '';
+}
+
+function updateStationStartBtn() {
+  document.getElementById('station-start-btn').disabled = !stationZone;
+}
+
+function renderStationPicker() {
+  const list = document.getElementById('station-list');
+  list.innerHTML = '';
+  for (const zone of STATION_ZONES) {
+    const div = document.createElement('div');
+    div.className = 'station-item' + (stationZone?.id === zone.id ? ' active' : '');
+    const title = document.createElement('div');
+    title.textContent = zone.label;
+    const desc = document.createElement('div');
+    desc.className = 'station-item-desc';
+    desc.textContent = zone.desc;
+    div.appendChild(title); div.appendChild(desc);
+    div.addEventListener('click', () => { stationZone = zone; renderStationPicker(); updateStationStartBtn(); });
+    list.appendChild(div);
+  }
+}
+
+function showStationPicker() {
+  document.getElementById('learn-submenu-btns').style.display = 'none';
+  document.getElementById('station-picker').style.display     = 'block';
+  renderStationPicker();
+  updateStationStartBtn();
+}
+
+function hideStationPicker() {
+  document.getElementById('station-picker').style.display     = 'none';
+  document.getElementById('learn-submenu-btns').style.display = '';
+}
+
+document.getElementById('learn-station-btn').addEventListener('click', showStationPicker);
+document.getElementById('station-back-btn').addEventListener('click', hideStationPicker);
+document.getElementById('station-tier-arterial-btn').addEventListener('click', () => {
+  stationTier = 'arterial';
+  document.getElementById('station-tier-arterial-btn').classList.add('active');
+  document.getElementById('station-tier-arterial-sec-btn').classList.remove('active');
+});
+document.getElementById('station-tier-arterial-sec-btn').addEventListener('click', () => {
+  stationTier = 'arterial_secondary';
+  document.getElementById('station-tier-arterial-sec-btn').classList.add('active');
+  document.getElementById('station-tier-arterial-btn').classList.remove('active');
+});
+document.getElementById('station-mode-quiz-btn').addEventListener('click', () => {
+  stationSub = 'quiz';
+  document.getElementById('station-mode-quiz-btn').classList.add('active');
+  document.getElementById('station-mode-cycle-btn').classList.remove('active');
+});
+document.getElementById('station-mode-cycle-btn').addEventListener('click', () => {
+  stationSub = 'cycle';
+  document.getElementById('station-mode-cycle-btn').classList.add('active');
+  document.getElementById('station-mode-quiz-btn').classList.remove('active');
+});
+document.getElementById('station-start-btn').addEventListener('click', () => {
+  if (!stationZone) return;
+  if (stationActiveNames().length === 0) {
+    const tierLabel = stationTier === 'arterial_secondary' ? 'arterials + secondary roads' : 'arterials';
+    alert(`No ${tierLabel} found in ${stationZone.label} — try the other road-class option.`);
+    return;
+  }
+  hideStationPicker();
+  setMode('station');
+});
+// ── End Station Shift Review ──────────────────────────────────────────────────
+
 document.getElementById('submit-btn').addEventListener('click', checkAnswer);
 document.getElementById('skip-btn').addEventListener('click',   skipRoad);
 document.getElementById('zoom-btn').addEventListener('click',   () => { if (currentRoad) zoomToRoad(currentRoad); });
@@ -1910,6 +2077,20 @@ async function init() {
       }
       arterialAndSideNames = roadNames.filter(n => artAndSidesSet.has(n));
     }
+
+    // Station Shift Review road-class tiers (tighter than the general Arterials filter above)
+    stationArterialNames = roadNames.filter(name =>
+      !ARTERIAL_EXCLUDE.has(name) && (
+        NAMED_ARTERIALS.has(name) ||
+        (roadHighwayTypes[name] && [...roadHighwayTypes[name]].some(t => STATION_ARTERIAL_HWY_TYPES.has(t)))
+      )
+    );
+    stationArterialSecondaryNames = roadNames.filter(name =>
+      !ARTERIAL_EXCLUDE.has(name) && (
+        NAMED_ARTERIALS.has(name) ||
+        (roadHighwayTypes[name] && [...roadHighwayTypes[name]].some(t => STATION_ARTERIAL_HWY_TYPES.has(t) || t === 'secondary'))
+      )
+    );
 
     updateRoadCountLabel(); renderRoads(); updateRoadList(); updateKnownBtn();
     document.getElementById('loading').style.display = 'none';
