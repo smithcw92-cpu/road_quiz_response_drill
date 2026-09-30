@@ -170,6 +170,28 @@
     #arterial-list { max-height: 200px; overflow-y: auto; border: 1px solid #2a3050; border-radius: 6px; padding: 4px; margin-top: 4px; }
     .arterial-item { padding: 5px 8px; cursor: pointer; border-radius: 4px; font-size: 0.82rem; color: #c5cde8; margin-bottom: 2px; }
     .arterial-item:hover { background: #2a3050; color: #fff; }
+    #road-search-input {
+      width: 100%; box-sizing: border-box; padding: 8px 30px 8px 10px; border-radius: 6px;
+      border: 2px solid #2a3050; background: #12151c; color: #dde1ea; font-size: 0.85rem; outline: none;
+      transition: border-color 0.15s;
+    }
+    #road-search-input:focus { border-color: #e05252; }
+    #road-search-clear {
+      position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; color: #5a6380; font-size: 1.1rem; line-height: 1;
+      cursor: pointer; padding: 2px 4px;
+    }
+    #road-search-clear:hover { color: #dde1ea; }
+    #road-search-results { max-height: 180px; overflow-y: auto; margin-top: 6px; }
+    #road-search-results::-webkit-scrollbar { width: 4px; }
+    #road-search-results::-webkit-scrollbar-track { background: transparent; }
+    #road-search-results::-webkit-scrollbar-thumb { background: #2a3050; border-radius: 2px; }
+    .search-result-item {
+      padding: 6px 8px; border-radius: 4px; font-size: 0.82rem; color: #c5cde8;
+      cursor: pointer; margin-bottom: 2px; transition: background 0.1s;
+    }
+    .search-result-item:hover, .search-result-item.highlighted-active { background: #2a3050; color: #fff; }
+    #road-search-empty { font-size: 0.78rem; color: #5a6380; padding: 4px 2px; }
     #station-picker { display: none; }
     .station-item {
       padding: 8px 10px; border: 1px solid #2a3050; border-radius: 6px;
@@ -366,6 +388,14 @@
         </div>
       </div>
       <div class="panel">
+        <div class="panel-title">Search Roads</div>
+        <div style="position:relative;">
+          <input id="road-search-input" type="text" placeholder="Type a road name…" autocomplete="off" spellcheck="false" />
+          <button id="road-search-clear" style="display:none;">&times;</button>
+        </div>
+        <div id="road-search-results"></div>
+      </div>
+      <div class="panel">
         <div class="mode-toggle-row">
           <button class="btn btn-mode active" id="mode-name-btn">&#9654; Name That Road</button>
           <button class="btn btn-mode"        id="mode-find-btn">&#9670; Find That Road</button>
@@ -478,9 +508,9 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const map = L.map('map', { center: [47.640, -122.520], zoom: 12, zoomControl: true });
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
-  subdomains: 'abcd', maxZoom: 19,
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  subdomains: 'abc', maxZoom: 19,
 }).addTo(map);
 
 let roadsByName   = {};
@@ -614,6 +644,7 @@ const STYLE_CORRECT  = { color: '#4caf50', weight: 6,   opacity: 1   };
 const STYLE_SKIP     = { color: '#ff9800', weight: 5,   opacity: 1   };
 const STYLE_AREA_BOX    = { color: '#ff9800', weight: 2, dashArray: '6 4', fillColor: '#ff9800', fillOpacity: 0.07, interactive: false };
 const STYLE_ARTERIAL_HL = { color: '#ff9800', weight: 6, opacity: 0.9 };
+const STYLE_SEARCH      = { color: '#ffeb3b', weight: 6, opacity: 1, dashArray: '4 4' };
 
 const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
@@ -1491,7 +1522,7 @@ function startQuiz() {
       map.fitBounds(L.latLngBounds([b.south, b.west], [b.north, b.east]), { padding: [20, 20] });
     }
     quizQueue = shuffle([...activeNames()]);
-    updateStationPhaseInfo(); updateRoadList(); nextQuestion();
+    updateStationPhaseInfo(); updateRoadCountLabel(); updateRoadList(); nextQuestion();
     return;
   }
   quizQueue = shuffle([...activeNames()]);
@@ -1937,6 +1968,73 @@ document.getElementById('station-start-btn').addEventListener('click', () => {
   setMode('station');
 });
 // ── End Station Shift Review ──────────────────────────────────────────────────
+
+// ── Search Roads ───────────────────────────────────────────────────────────────
+let searchedRoad = null;
+const SEARCH_RESULT_LIMIT = 10;
+
+function clearRoadSearchHighlight() {
+  if (searchedRoad) {
+    setRoadStyle(searchedRoad, searchedRoad === currentRoad ? STYLE_ACTIVE : STYLE_DEFAULT);
+    searchedRoad = null;
+  }
+}
+
+function highlightSearchedRoad(name) {
+  if (!roadLayers[name]) return;
+  clearRoadSearchHighlight();
+  searchedRoad = name;
+  setRoadStyle(name, STYLE_SEARCH);
+  roadLayers[name]?.eachLayer(l => l.bringToFront?.());
+  zoomToRoad(name);
+  document.getElementById('road-search-input').value = name;
+  document.getElementById('road-search-results').innerHTML = '';
+  document.getElementById('road-search-clear').style.display = '';
+}
+
+function clearRoadSearch() {
+  clearRoadSearchHighlight();
+  document.getElementById('road-search-input').value = '';
+  document.getElementById('road-search-results').innerHTML = '';
+  document.getElementById('road-search-clear').style.display = 'none';
+}
+
+function renderRoadSearchResults(query) {
+  const list = document.getElementById('road-search-results');
+  list.innerHTML = '';
+  if (!query) return;
+  const q = query.toLowerCase();
+  const matches = roadNames.filter(n => n.toLowerCase().includes(q)).slice(0, SEARCH_RESULT_LIMIT);
+  if (matches.length === 0) {
+    const empty = document.createElement('div');
+    empty.id = 'road-search-empty';
+    empty.textContent = 'No roads match.';
+    list.appendChild(empty);
+    return;
+  }
+  matches.forEach((name, i) => {
+    const div = document.createElement('div');
+    div.className   = 'search-result-item' + (i === 0 ? ' highlighted-active' : '');
+    div.textContent = name;
+    div.addEventListener('click', () => highlightSearchedRoad(name));
+    list.appendChild(div);
+  });
+}
+
+document.getElementById('road-search-input').addEventListener('input', e => {
+  document.getElementById('road-search-clear').style.display = e.target.value ? '' : 'none';
+  renderRoadSearchResults(e.target.value.trim());
+});
+document.getElementById('road-search-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    const q = e.target.value.trim().toLowerCase();
+    if (!q) return;
+    const match = roadNames.find(n => n.toLowerCase().includes(q));
+    if (match) highlightSearchedRoad(match);
+  }
+});
+document.getElementById('road-search-clear').addEventListener('click', clearRoadSearch);
+// ── End Search Roads ─────────────────────────────────────────────────────────
 
 document.getElementById('submit-btn').addEventListener('click', checkAnswer);
 document.getElementById('skip-btn').addEventListener('click',   skipRoad);
